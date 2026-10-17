@@ -1,0 +1,20 @@
+{
+  "id": "real-amazon",
+  "expectHighFinding": false,
+  "expectCodes": [],
+  "message": {
+    "source": "email",
+    "from": "order-update@amazon.com",
+    "displayName": "Amazon",
+    "subject": "Shipped: headphones",
+    "text": "Your Amazon package shipped. It should arrive Tuesday.",
+    "links": [
+      {
+        "visibleText": "Track package",
+        "href": "https://www.amazon.com/progress-tracker"
+      }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}

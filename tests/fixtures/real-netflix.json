@@ -1,0 +1,20 @@
+{
+  "id": "real-netflix",
+  "expectHighFinding": false,
+  "expectCodes": [],
+  "message": {
+    "source": "email",
+    "from": "info@netflix.com",
+    "displayName": "Netflix",
+    "subject": "New sign-in",
+    "text": "A new device signed in to your Netflix household.",
+    "links": [
+      {
+        "visibleText": "Manage access",
+        "href": "https://www.netflix.com/account"
+      }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}

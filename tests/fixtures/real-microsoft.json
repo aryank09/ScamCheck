@@ -1,0 +1,20 @@
+{
+  "id": "real-microsoft",
+  "expectHighFinding": false,
+  "expectCodes": [],
+  "message": {
+    "source": "email",
+    "from": "account@microsoft.com",
+    "displayName": "Microsoft",
+    "subject": "Security info was added",
+    "text": "Microsoft added an email address to your account security info.",
+    "links": [
+      {
+        "visibleText": "Review security",
+        "href": "https://account.microsoft.com/security"
+      }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}

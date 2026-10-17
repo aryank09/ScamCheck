@@ -1,0 +1,20 @@
+{
+  "id": "real-paypal",
+  "expectHighFinding": false,
+  "expectCodes": [],
+  "message": {
+    "source": "email",
+    "from": "service@paypal.com",
+    "displayName": "PayPal",
+    "subject": "You sent a payment",
+    "text": "You sent a payment with PayPal. No action is needed.",
+    "links": [
+      {
+        "visibleText": "View details",
+        "href": "https://www.paypal.com/activity"
+      }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}

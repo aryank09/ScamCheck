@@ -1,0 +1,20 @@
+{
+  "id": "real-apple",
+  "expectHighFinding": false,
+  "expectCodes": [],
+  "message": {
+    "source": "email",
+    "from": "no-reply@apple.com",
+    "displayName": "Apple",
+    "subject": "Your receipt",
+    "text": "Thanks for your Apple purchase. A receipt is ready.",
+    "links": [
+      {
+        "visibleText": "View receipt",
+        "href": "https://www.apple.com/shop/receipt"
+      }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}

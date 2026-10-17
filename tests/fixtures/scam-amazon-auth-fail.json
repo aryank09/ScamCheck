@@ -1,0 +1,22 @@
+{
+  "id": "scam-amazon-auth-fail",
+  "expectHighFinding": true,
+  "expectCodes": [
+    "AUTH_FAIL"
+  ],
+  "message": {
+    "source": "email",
+    "from": "order-update@amazon.com",
+    "displayName": "Amazon",
+    "subject": "Your Amazon order",
+    "text": "Your Amazon order shipped. Track it on our website.",
+    "links": [
+      {
+        "visibleText": "Track package",
+        "href": "https://www.amazon.com/orders"
+      }
+    ],
+    "authenticationResults": "mx.google.com; spf=pass; dkim=pass; dmarc=fail",
+    "seenSenderBefore": true
+  }
+}

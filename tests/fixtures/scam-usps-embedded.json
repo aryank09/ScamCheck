@@ -1,0 +1,22 @@
+{
+  "id": "scam-usps-embedded",
+  "expectHighFinding": true,
+  "expectCodes": [
+    "LOOKALIKE_DOMAIN"
+  ],
+  "message": {
+    "source": "email",
+    "from": "tracking@usps-fee-alert.com",
+    "displayName": "USPS",
+    "subject": "Package waiting",
+    "text": "USPS is holding a package. Pay a small fee to release it.",
+    "links": [
+      {
+        "visibleText": "Pay now",
+        "href": "https://usps-fee-alert.com/pay"
+      }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": false
+  }
+}
