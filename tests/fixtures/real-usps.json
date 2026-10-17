@@ -1,0 +1,20 @@
+{
+  "id": "real-usps",
+  "expectHighFinding": false,
+  "expectCodes": [],
+  "message": {
+    "source": "email",
+    "from": "tracking@usps.com",
+    "displayName": "USPS",
+    "subject": "Your package is on the way",
+    "text": "USPS scanned your package in Seattle. Expected delivery is Friday.",
+    "links": [
+      {
+        "visibleText": "Track",
+        "href": "https://tools.usps.com/track"
+      }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}

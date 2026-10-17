@@ -1,0 +1,22 @@
+{
+  "id": "scam-invoice-auth-fail",
+  "expectHighFinding": true,
+  "expectCodes": [
+    "AUTH_FAIL"
+  ],
+  "message": {
+    "source": "email",
+    "from": "billing@invoice-center.com",
+    "displayName": "Accounts Payable",
+    "subject": "Invoice past due",
+    "text": "Please send a wire transfer for the attached invoice today.",
+    "links": [
+      {
+        "visibleText": "Open invoice",
+        "href": "https://invoice-center.com/bill"
+      }
+    ],
+    "authenticationResults": "mx.google.com; spf=fail; dmarc=fail",
+    "seenSenderBefore": false
+  }
+}

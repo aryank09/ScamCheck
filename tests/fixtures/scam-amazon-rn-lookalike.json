@@ -1,0 +1,21 @@
+{
+  "id": "scam-amazon-rn-lookalike",
+  "expectHighFinding": true,
+  "expectCodes": [
+    "LOOKALIKE_DOMAIN"
+  ],
+  "message": {
+    "source": "email",
+    "from": "orders@arnazon.com",
+    "displayName": "Amazon",
+    "subject": "Order problem",
+    "text": "Amazon could not deliver your package.",
+    "links": [
+      {
+        "visibleText": "Update delivery",
+        "href": "https://arnazon.com/order"
+      }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass"
+  }
+}

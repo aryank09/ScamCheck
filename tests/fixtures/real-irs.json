@@ -1,0 +1,20 @@
+{
+  "id": "real-irs",
+  "expectHighFinding": false,
+  "expectCodes": [],
+  "message": {
+    "source": "email",
+    "from": "no-reply@irs.gov",
+    "displayName": "Internal Revenue Service",
+    "subject": "Your transcript is available",
+    "text": "The IRS posted a tax transcript to your online account.",
+    "links": [
+      {
+        "visibleText": "Open account",
+        "href": "https://www.irs.gov/account"
+      }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}

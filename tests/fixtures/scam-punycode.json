@@ -1,0 +1,21 @@
+{
+  "id": "scam-punycode",
+  "expectHighFinding": true,
+  "expectCodes": [
+    "LOOKALIKE_DOMAIN"
+  ],
+  "message": {
+    "source": "email",
+    "from": "security@xn--chase-9xa.com",
+    "displayName": "Chase",
+    "subject": "Unusual sign-in",
+    "text": "We noticed a sign-in to your Chase profile.",
+    "links": [
+      {
+        "visibleText": "Review",
+        "href": "https://xn--chase-9xa.com/review"
+      }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass"
+  }
+}
