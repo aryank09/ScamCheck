@@ -7,6 +7,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "start": "tsx src/index.ts",
     "fixtures": "tsx scripts/runFixtures.ts",
     "typecheck": "tsc --noEmit"
   },
