@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: scamcheck
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: false
