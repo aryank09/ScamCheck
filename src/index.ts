@@ -3,17 +3,19 @@ import { checkToolSecret, voiceTools } from "./voice/tools.js";
 import { handlePostCall } from "./voice/postCall.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
+// Post-call payloads carry the whole transcript; a long call easily passes 64 KB.
+const MAX_POST_CALL_BYTES = 2 * 1024 * 1024;
 const port = Number(process.env.PORT ?? "3000");
 
 class PayloadTooLargeError extends Error {}
 
-async function readRawBody(request: IncomingMessage): Promise<Buffer> {
+async function readRawBody(request: IncomingMessage, maxBytes = MAX_BODY_BYTES): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += buffer.length;
-    if (size > MAX_BODY_BYTES) throw new PayloadTooLargeError();
+    if (size > maxBytes) throw new PayloadTooLargeError();
     chunks.push(buffer);
   }
   return Buffer.concat(chunks);
@@ -76,7 +78,7 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "POST" && url.pathname === "/voice/post-call") {
     try {
-      const rawBody = await readRawBody(request);
+      const rawBody = await readRawBody(request, MAX_POST_CALL_BYTES);
       const status = await handlePostCall(rawBody, header(request, "elevenlabs-signature"));
       response.writeHead(status);
       response.end();
