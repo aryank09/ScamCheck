@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { loadConfig } from "../config.js";
+import { scrubBannedWords } from "./bannedWords.js";
 import { collectEvidence, rulesFloor } from "./evidence.js";
 import { buildAnalysisPrompt } from "./prompt.js";
 import type { AnalysisContext, AnalysisResult, Finding, Verdict } from "./types.js";
@@ -45,14 +46,6 @@ const verdictSchema = z.object({
   case_summary: z.string().min(1),
   matches_recent_case: z.boolean(),
 });
-
-const BANNED_WORDS: readonly [RegExp, string][] = [
-  [/\bsafe\b/gi, "cautious"],
-  [/\bverified\b/gi, "checked"],
-  [/\bguaranteed\b/gi, "certain"],
-  [/\blegitimate\b/gi, "real"],
-  [/\bofficial\b/gi, "company"],
-];
 
 const DEFAULT_CONTEXT: AnalysisContext = {
   language: "en",
@@ -157,20 +150,13 @@ function fallbackVerdict(): Verdict {
 function scrubVerdict(verdict: Verdict): Verdict {
   return {
     ...verdict,
-    scam_type: scrubText(verdict.scam_type),
-    red_flags: verdict.red_flags.map(scrubText),
-    spoken_summary: scrubText(verdict.spoken_summary),
-    action: scrubText(verdict.action),
-    case_summary: scrubText(verdict.case_summary),
+    scam_type: scrubBannedWords(verdict.scam_type),
+    claimed_brand: verdict.claimed_brand ? scrubBannedWords(verdict.claimed_brand) : null,
+    red_flags: verdict.red_flags.map(scrubBannedWords),
+    spoken_summary: scrubBannedWords(verdict.spoken_summary),
+    action: scrubBannedWords(verdict.action),
+    case_summary: scrubBannedWords(verdict.case_summary),
   };
-}
-
-function scrubText(text: string): string {
-  let scrubbed = text;
-  for (const [pattern, replacement] of BANNED_WORDS) {
-    scrubbed = scrubbed.replace(pattern, replacement);
-  }
-  return scrubbed;
 }
 
 function clampScore(score: number): number {

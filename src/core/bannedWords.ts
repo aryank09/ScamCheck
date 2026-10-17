@@ -1,5 +1,5 @@
 // AGENTS.md §14: never call a message safe/verified/guaranteed/legitimate/official.
-// Same list as analyze.ts; move analyze.ts onto this once both are on main.
+// analyze.ts and the post-call follow-up both pass text through here.
 // ponytail: English only; LLM prompts carry the rule for other languages.
 const BANNED_WORDS: readonly [RegExp, string][] = [
   [/\bsafe\b/gi, "cautious"],
