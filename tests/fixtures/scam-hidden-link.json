@@ -1,0 +1,18 @@
+{
+  "id": "scam-hidden-link",
+  "expectHighFinding": true,
+  "expectCodes": [
+    "HIDDEN_LINK"
+  ],
+  "message": {
+    "source": "email",
+    "from": "notices@newsletter.test",
+    "displayName": "Chase",
+    "subject": "Secure message",
+    "text": "Please review your Chase account.",
+    "html": "<p>Please review your Chase account. <a href=\"https://evil-payments.net/login\">https://chase.com/secure</a></p>",
+    "links": [],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": false
+  }
+}

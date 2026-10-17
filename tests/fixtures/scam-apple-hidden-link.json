@@ -1,0 +1,18 @@
+{
+  "id": "scam-apple-hidden-link",
+  "expectHighFinding": true,
+  "expectCodes": [
+    "HIDDEN_LINK"
+  ],
+  "message": {
+    "source": "email",
+    "from": "support@apple.com",
+    "displayName": "Apple",
+    "subject": "Apple ID",
+    "text": "Your Apple ID needs a quick review.",
+    "html": "<a href=\"https://evil-payments.net/apple\">https://apple.com/account</a>",
+    "links": [],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}

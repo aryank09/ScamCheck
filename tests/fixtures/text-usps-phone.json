@@ -1,0 +1,13 @@
+{
+  "id": "text-usps-phone",
+  "expectHighFinding": true,
+  "expectCodes": [
+    "SENDER_IMPERSONATION"
+  ],
+  "message": {
+    "source": "imessage",
+    "from": "+1 800 555 0199",
+    "text": "USPS: your package is on hold. Pay a small fee at https://usps-fee-alert.com/pay",
+    "links": []
+  }
+}

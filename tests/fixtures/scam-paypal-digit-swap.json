@@ -1,0 +1,22 @@
+{
+  "id": "scam-paypal-digit-swap",
+  "expectHighFinding": true,
+  "expectCodes": [
+    "LOOKALIKE_DOMAIN"
+  ],
+  "message": {
+    "source": "email",
+    "from": "service@paypa1.com",
+    "displayName": "PayPal",
+    "subject": "You received a payment",
+    "text": "Log in to PayPal to accept the transfer.",
+    "links": [
+      {
+        "visibleText": "View payment",
+        "href": "https://paypa1.com/signin"
+      }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": false
+  }
+}

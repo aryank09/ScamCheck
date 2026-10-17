@@ -1,0 +1,20 @@
+{
+  "id": "real-bankofamerica",
+  "expectHighFinding": false,
+  "expectCodes": [],
+  "message": {
+    "source": "email",
+    "from": "alerts@bankofamerica.com",
+    "displayName": "Bank of America",
+    "subject": "Deposit posted",
+    "text": "A deposit posted to your Bank of America account.",
+    "links": [
+      {
+        "visibleText": "See account",
+        "href": "https://www.bankofamerica.com/deposits"
+      }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "id": "scam-irs-mismatch",
+  "expectHighFinding": true,
+  "expectCodes": [
+    "BRAND_MISMATCH"
+  ],
+  "message": {
+    "source": "email",
+    "from": "refunds@tax-help.com",
+    "displayName": "Internal Revenue Service",
+    "subject": "Tax refund notice",
+    "text": "The IRS has a refund for you. Reply with your verification code.",
+    "links": [
+      {
+        "visibleText": "View notice",
+        "href": "https://tax-help.com/refund"
+      }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass"
+  }
+}

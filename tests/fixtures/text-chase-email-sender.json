@@ -1,0 +1,13 @@
+{
+  "id": "text-chase-email-sender",
+  "expectHighFinding": true,
+  "expectCodes": [
+    "SENDER_IMPERSONATION"
+  ],
+  "message": {
+    "source": "whatsapp",
+    "from": "thief@gmail.com",
+    "text": "Chase: verify your account here https://chase-secure-login.net/login",
+    "links": []
+  }
+}

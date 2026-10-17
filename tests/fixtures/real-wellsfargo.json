@@ -1,0 +1,20 @@
+{
+  "id": "real-wellsfargo",
+  "expectHighFinding": false,
+  "expectCodes": [],
+  "message": {
+    "source": "email",
+    "from": "alerts@wellsfargo.com",
+    "displayName": "Wells Fargo",
+    "subject": "Account alert",
+    "text": "Wells Fargo recorded a debit card purchase.",
+    "links": [
+      {
+        "visibleText": "Review",
+        "href": "https://connect.wellsfargo.com/alerts"
+      }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}

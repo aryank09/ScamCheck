@@ -1,0 +1,23 @@
+{
+  "id": "real-reply-to-mismatch",
+  "expectHighFinding": false,
+  "expectCodes": [
+    "REPLY_TO_MISMATCH"
+  ],
+  "message": {
+    "source": "email",
+    "from": "alerts@chase.com",
+    "replyTo": "person@other-mailbox.net",
+    "displayName": "Chase",
+    "subject": "Your statement is ready",
+    "text": "Your Chase statement is ready.",
+    "links": [
+      {
+        "visibleText": "View statement",
+        "href": "https://secure.chase.com/statement"
+      }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}

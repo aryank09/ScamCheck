@@ -1,0 +1,25 @@
+{
+  "name": "scamcheck",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "fixtures": "tsx scripts/runFixtures.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@google/genai": "^1.22.0",
+    "@photon-ai/api": "^0.5.0",
+    "mongodb": "^7.7.0",
+    "node-html-parser": "^7.0.1",
+    "tldts": "^7.0.19",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}
