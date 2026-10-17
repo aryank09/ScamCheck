@@ -1,0 +1,16 @@
+{
+  "id": "scam-microsoft-hidden-link",
+  "expectHighFinding": true,
+  "expectCodes": ["HIDDEN_LINK"],
+  "message": {
+    "source": "email",
+    "from": "account-security-noreply@accountprotection.microsoft.com",
+    "displayName": "Microsoft account team",
+    "subject": "Security info",
+    "text": "Please review the security info on your Microsoft account.",
+    "html": "<a href=\"https://account-check.net/login\">https://account.microsoft.com/security</a>",
+    "links": [],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}

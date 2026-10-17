@@ -1,0 +1,21 @@
+{
+  "id": "real-fedex",
+  "expectHighFinding": false,
+  "expectCodes": [],
+  "message": {
+    "source": "email",
+    "from": "tracking@fedex.com",
+    "replyTo": "tracking@fedex.com",
+    "displayName": "FedEx",
+    "subject": "Your package is on the way",
+    "text": "FedEx picked up a package. Track it when you have a moment.",
+    "links": [
+      {
+        "visibleText": "Track package",
+        "href": "https://www.fedex.com/track"
+      }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}

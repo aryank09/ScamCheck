@@ -1,0 +1,21 @@
+{
+  "id": "real-ssa-reply-to",
+  "expectHighFinding": false,
+  "expectCodes": ["REPLY_TO_MISMATCH"],
+  "message": {
+    "source": "email",
+    "from": "notices@ssa.gov",
+    "replyTo": "help@benefits-desk.net",
+    "displayName": "Social Security Administration",
+    "subject": "Your statement is ready",
+    "text": "Your Social Security statement is ready to view.",
+    "links": [
+      {
+        "visibleText": "View statement",
+        "href": "https://www.ssa.gov/statement"
+      }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}
