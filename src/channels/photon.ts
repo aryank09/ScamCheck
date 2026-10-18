@@ -1,8 +1,10 @@
 // Photon 2.0 beta. Docs: https://photon.codes/docs/beta/api-reference/messages/send-a-message
 import { randomUUID } from "node:crypto";
 import { Photon } from "@photon-ai/api";
+import { imageMime, type AnalysisImage } from "../core/images.js";
 
 const TIMEOUT_MS = 10_000;
+export type MessagePlatform = "imessage" | "sms";
 
 let client: Photon | undefined;
 
@@ -22,20 +24,20 @@ function projectId(): string {
   return id;
 }
 
-async function agentUserId(api: Photon, project: string): Promise<string> {
-  const configured = process.env.PHOTON_AGENT_USER_ID;
+async function agentUserId(api: Photon, project: string, platform: MessagePlatform): Promise<string> {
+  const configured = platform === "sms" ? process.env.PHOTON_SMS_AGENT_USER_ID : process.env.PHOTON_AGENT_USER_ID;
   if (configured) return configured;
   let pageToken: string | undefined;
   do {
     const page = await api.projects.listUsers({
       path: { id: project },
-      query: { platform: "imessage", pageSize: 100, ...(pageToken ? { pageToken } : {}) },
+      query: { platform, pageSize: 100, ...(pageToken ? { pageToken } : {}) },
     });
-    const agent = page.items.find((user) => user.platform === "imessage" && user.kind === "agent");
+    const agent = page.items.find((user) => user.platform === platform && user.kind === "agent");
     if (agent) return asId(agent.id, "agent id");
     pageToken = page.nextPageToken;
   } while (pageToken);
-  throw new Error("No iMessage agent user on this Photon project");
+  throw new Error(`No ${platform} agent user on this Photon project`);
 }
 
 export interface InboundText {
@@ -43,13 +45,15 @@ export interface InboundText {
   phone: string;
   text: string;
   createdAt: string;
+  attachmentId?: string;
+  platform: MessagePlatform;
 }
 
-/** Send a plain-text iMessage. Does not log the phone number or the message body. */
-export async function sendText(phone: string, text: string): Promise<void> {
+/** Send plain text on the selected Photon channel. Does not log phone numbers or message bodies. */
+export async function sendText(phone: string, text: string, platform: MessagePlatform = "imessage"): Promise<void> {
   const api = photon();
   const project = projectId();
-  const convo = await conversation(api, project, phone);
+  const convo = await conversation(api, project, phone, platform);
   await api.projects.sendMessage({
     path: { id: project },
     headers: { "idempotency-key": `text:${randomUUID()}` },
@@ -88,7 +92,7 @@ export async function sendVoiceNote(phone: string, audio: Buffer): Promise<void>
     },
     body: new Blob([new Uint8Array(payload)]),
   });
-  const convo = await conversation(api, project, phone);
+  const convo = await conversation(api, project, phone, "imessage");
   await api.projects.sendMessage({
     path: { id: project },
     headers: { "idempotency-key": `voice:${randomUUID()}` },
@@ -100,11 +104,29 @@ export async function sendVoiceNote(phone: string, audio: Buffer): Promise<void>
   });
 }
 
+const MAX_IMAGE_BYTES = 4_000_000;
+
+/**
+ * Download a received photo for one analysis. Returns null when it is not an image.
+ * Throws when Photon fails, so the caller can retry. Bytes are not stored.
+ */
+export async function downloadInboundImage(attachmentId: string): Promise<AnalysisImage | null> {
+  const api = photon();
+  const project = projectId();
+  const meta = await api.projects.getAttachment({ path: { id: project, attachmentId } });
+  const mimeType = imageMime(meta.contentType);
+  if (!mimeType || meta.sizeBytes > MAX_IMAGE_BYTES) return null;
+  const downloaded = await api.projects.downloadAttachment({ path: { id: project, attachmentId } });
+  const data = await fileBytes(downloaded);
+  if (data.length === 0 || data.length > MAX_IMAGE_BYTES) return null;
+  return { mimeType, data };
+}
+
 /**
  * Inbound iMessage via the beta listMessages query.
  * https://photon.codes/docs/beta/get-started/imessage
  */
-export async function listInboundTexts(createdSince: string): Promise<InboundText[]> {
+export async function listInboundTexts(createdSince: string, platform: MessagePlatform): Promise<InboundText[]> {
   const api = photon();
   const project = projectId();
   const found: InboundText[] = [];
@@ -117,12 +139,12 @@ export async function listInboundTexts(createdSince: string): Promise<InboundTex
         direction: "received",
         order: "asc",
         pageSize: 50,
-        platform: "imessage",
+        platform,
         ...(pageToken ? { pageToken } : {}),
       },
     });
     for (const message of page.items) {
-      const text = inboundText(message as unknown);
+      const text = inboundText(message as unknown, platform);
       if (text) found.push(text);
     }
     pageToken = page.nextPageToken;
@@ -134,22 +156,23 @@ async function conversation(
   api: Photon,
   project: string,
   phone: string,
+  platform: MessagePlatform,
 ): Promise<{ spaceId: string; senderId: string }> {
   const person = await api.projects.createOrGetUser({
     path: { id: project },
-    body: { handle: phone, platform: "imessage" },
+    body: { handle: phone, platform },
   });
   const personId = asId(person.id, "user id");
-  const agentId = await agentUserId(api, project);
+  const agentId = await agentUserId(api, project, platform);
   const space = await api.projects.createOrGetSpace({
     path: { id: project },
     headers: { "idempotency-key": `space:${agentId}:${personId}` },
-    body: { platform: "imessage", participantIds: [agentId, personId] },
+    body: { platform, participantIds: [agentId, personId] },
   });
   return { spaceId: asId(space.id, "space id"), senderId: agentId };
 }
 
-function inboundText(value: unknown): InboundText | null {
+function inboundText(value: unknown, platform: MessagePlatform): InboundText | null {
   if (!value || typeof value !== "object") return null;
   const message = value as {
     id?: unknown;
@@ -167,14 +190,32 @@ function inboundText(value: unknown): InboundText | null {
   if (typeof message.id !== "string" || typeof message.createdAt !== "string") return null;
   const content = message.content;
   if (!content || typeof content !== "object" || !("type" in content)) return null;
-  const typed = content as { type?: unknown; text?: unknown };
+  const typed = content as { type?: unknown; text?: unknown; attachmentId?: unknown };
   if (typed.type === "text" && typeof typed.text === "string" && typed.text.trim()) {
-    return { id: message.id, phone: sentBy.handle, text: typed.text.trim(), createdAt: message.createdAt };
+    return { id: message.id, phone: sentBy.handle, text: typed.text.trim(), createdAt: message.createdAt, platform };
   }
-  if (typed.type === "attachment") {
-    return { id: message.id, phone: sentBy.handle, text: "The user forwarded an image.", createdAt: message.createdAt };
+  if (typed.type === "attachment" && typeof typed.attachmentId === "string" && typed.attachmentId) {
+    return {
+      id: message.id,
+      phone: sentBy.handle,
+      text: "",
+      createdAt: message.createdAt,
+      attachmentId: typed.attachmentId,
+      platform,
+    };
   }
   return null;
+}
+
+async function fileBytes(value: unknown): Promise<Buffer> {
+  if (Buffer.isBuffer(value)) return value;
+  if (value instanceof Uint8Array) return Buffer.from(value);
+  if (value instanceof ArrayBuffer) return Buffer.from(value);
+  if (value && typeof value === "object" && "arrayBuffer" in value && typeof value.arrayBuffer === "function") {
+    const blob = value as { arrayBuffer: () => Promise<ArrayBuffer> };
+    return Buffer.from(await blob.arrayBuffer());
+  }
+  throw new Error("attachment bytes were not a file");
 }
 
 function party(value: unknown): { kind: string; handle?: string } | null {

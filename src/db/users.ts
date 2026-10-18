@@ -1,10 +1,20 @@
+import { randomBytes } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { getDb } from "./mongo.js";
+import type { MessagePlatform } from "../channels/photon.js";
+
+// Link tokens are the only lock on the Gmail-connect and family pages, so they must be
+// unguessable. ObjectIds are not: same-process ids differ only in a counter.
+const TOKEN_RE = /^[a-f0-9]{32}$/;
+export function newToken(): string {
+  return randomBytes(16).toString("hex");
+}
 
 export interface FamilyContact {
   name: string;
   phone: string;
   relation?: string;
+  messagePlatform?: MessagePlatform;
 }
 
 export type OnboardingStep = "language" | "consent" | "family" | "done";
@@ -19,6 +29,7 @@ export interface GmailLink {
 export interface User {
   _id: ObjectId;
   phone: string;
+  messagePlatform: MessagePlatform;
   displayName?: string;
   language: string;
   familyContacts: FamilyContact[];
@@ -28,6 +39,10 @@ export interface User {
   gmail?: GmailLink;
   seenEmailIds: string[];
   connectToken?: string;
+  /** Private link for the family page. Separate from the Gmail connect token. */
+  familyToken?: string;
+  /** Running total of Gmail messages processed, including ones the model skipped. */
+  emailsChecked: number;
 }
 
 export async function findUserByPhone(phone: string): Promise<User | null> {
@@ -35,14 +50,63 @@ export async function findUserByPhone(phone: string): Promise<User | null> {
   if (!normalized) return null;
   const db = await getDb();
   const doc = await db.collection("users").findOne({ phone: normalized });
-  return doc ? toUser(doc) : null;
+  return doc ? upgradeTokens(toUser(doc)) : null;
+}
+
+/** One-time swap of old ObjectId-style tokens for random ones. Runs when the user next texts in. */
+async function upgradeTokens(user: User): Promise<User> {
+  const patch: { connectToken?: string; familyToken?: string } = {};
+  if (user.connectToken && !TOKEN_RE.test(user.connectToken)) patch.connectToken = newToken();
+  if (user.familyToken && !TOKEN_RE.test(user.familyToken)) patch.familyToken = newToken();
+  if (!patch.connectToken && !patch.familyToken) return user;
+  await saveUser(user._id, patch);
+  return { ...user, ...patch };
 }
 
 export async function findUserByConnectToken(token: string): Promise<User | null> {
-  if (!token) return null;
+  if (!TOKEN_RE.test(token)) return null;
   const db = await getDb();
   const doc = await db.collection("users").findOne({ connectToken: token });
   return doc ? toUser(doc) : null;
+}
+
+export async function findUserByFamilyToken(token: string): Promise<User | null> {
+  if (!TOKEN_RE.test(token)) return null;
+  const db = await getDb();
+  const doc = await db.collection("users").findOne({ familyToken: token });
+  return doc ? toUser(doc) : null;
+}
+
+/** Create the family-page token once. Existing tokens are left alone. */
+export async function ensureFamilyToken(user: User): Promise<string> {
+  if (user.familyToken && TOKEN_RE.test(user.familyToken)) return user.familyToken;
+  const token = newToken();
+  await saveUser(user._id, { familyToken: token });
+  user.familyToken = token;
+  return token;
+}
+
+/**
+ * Count one processed Gmail message.
+ * If the counter was never stored, start from how many ids this user already had.
+ */
+export async function incrementEmailsChecked(id: ObjectId, alreadySeen: number): Promise<void> {
+  const seed = Number.isFinite(alreadySeen) && alreadySeen > 0 ? Math.floor(alreadySeen) : 0;
+  const db = await getDb();
+  await db.collection("users").updateOne({ _id: id }, [
+    { $set: { emailsChecked: { $add: [{ $ifNull: ["$emailsChecked", seed] }, 1] } } },
+  ]);
+}
+
+/**
+ * Remember which channel a family contact texts from. Updates that one field in place,
+ * so a helper added on the family page at the same moment is never overwritten.
+ */
+export async function setFamilyContactPlatform(id: ObjectId, phone: string, platform: MessagePlatform): Promise<void> {
+  const db = await getDb();
+  await db
+    .collection("users")
+    .updateOne({ _id: id, "familyContacts.phone": phone }, { $set: { "familyContacts.$.messagePlatform": platform } });
 }
 
 /** The user who listed this phone as a family contact, plus that contact. */
@@ -66,18 +130,21 @@ export async function listGmailUsers(): Promise<User[]> {
   return docs.map(toUser);
 }
 
-export async function createUser(phone: string): Promise<User> {
+export async function createUser(phone: string, messagePlatform: MessagePlatform = "imessage"): Promise<User> {
   const normalized = normalizePhone(phone);
   const db = await getDb();
   const existing = await db.collection("users").findOne({ phone: normalized });
   if (existing) return toUser(existing);
   const doc = {
     phone: normalized,
+    messagePlatform,
     language: "en",
     familyContacts: [],
     onboardingStep: "language" as const,
     seenEmailIds: [],
-    connectToken: new ObjectId().toHexString(),
+    connectToken: newToken(),
+    familyToken: newToken(),
+    emailsChecked: 0,
     createdAt: new Date(),
   };
   const result = await db.collection("users").insertOne(doc);
@@ -90,6 +157,7 @@ export async function saveUser(
 ): Promise<void> {
   const set: Record<string, unknown> = {};
   if (patch.displayName !== undefined) set.displayName = patch.displayName;
+  if (patch.messagePlatform !== undefined) set.messagePlatform = patch.messagePlatform;
   if (patch.language !== undefined) set.language = patch.language;
   if (patch.familyContacts !== undefined) set.familyContacts = patch.familyContacts;
   if (patch.familyGroupId !== undefined) set.familyGroupId = patch.familyGroupId;
@@ -98,17 +166,24 @@ export async function saveUser(
   if (patch.gmail !== undefined) set.gmail = patch.gmail;
   if (patch.seenEmailIds !== undefined) set.seenEmailIds = patch.seenEmailIds.slice(-500);
   if (patch.connectToken !== undefined) set.connectToken = patch.connectToken;
+  if (patch.familyToken !== undefined) set.familyToken = patch.familyToken;
   const update: Record<string, unknown> = {};
   if (Object.keys(set).length > 0) update.$set = set;
   if (patch.seenEmailId) update.$addToSet = { seenEmailIds: patch.seenEmailId };
   if (Object.keys(update).length === 0) return;
   const db = await getDb();
   await db.collection("users").updateOne({ _id: id }, update);
+  if (patch.seenEmailId) {
+    await db.collection("users").updateOne({ _id: id }, [{ $set: { seenEmailIds: { $slice: ["$seenEmailIds", -500] } } }]);
+  }
 }
 
 export async function deleteUser(id: ObjectId): Promise<void> {
   const db = await getDb();
+  const existing = await db.collection("users").findOne({ _id: id });
+  const phone = typeof existing?.phone === "string" ? existing.phone : "";
   await db.collection("cases").deleteMany({ userId: id });
+  await db.collection("parentLinks").deleteMany(phone ? { $or: [{ userId: id }, { phone }] } : { userId: id });
   await db.collection("users").deleteOne({ _id: id });
 }
 
@@ -127,6 +202,7 @@ function toUser(doc: Record<string, unknown> & { _id: ObjectId }): User {
   return {
     _id: doc._id,
     phone: String(doc.phone),
+    messagePlatform: doc.messagePlatform === "sms" ? "sms" : "imessage",
     displayName: typeof doc.displayName === "string" ? doc.displayName : undefined,
     language: typeof doc.language === "string" && doc.language ? doc.language : "en",
     familyContacts: contacts(doc.familyContacts),
@@ -136,6 +212,11 @@ function toUser(doc: Record<string, unknown> & { _id: ObjectId }): User {
     gmail,
     seenEmailIds: stringList(doc.seenEmailIds),
     connectToken: typeof doc.connectToken === "string" ? doc.connectToken : undefined,
+    familyToken: typeof doc.familyToken === "string" ? doc.familyToken : undefined,
+    emailsChecked:
+      typeof doc.emailsChecked === "number" && doc.emailsChecked >= 0
+        ? doc.emailsChecked
+        : stringList(doc.seenEmailIds).length,
   };
 }
 
@@ -165,12 +246,13 @@ function contacts(value: unknown): FamilyContact[] {
   const parsed: FamilyContact[] = [];
   for (const item of value) {
     if (!item || typeof item !== "object") continue;
-    const contact = item as { name?: unknown; phone?: unknown; relation?: unknown };
+    const contact = item as { name?: unknown; phone?: unknown; relation?: unknown; messagePlatform?: unknown };
     if (typeof contact.name !== "string" || typeof contact.phone !== "string") continue;
     parsed.push({
       name: contact.name,
       phone: normalizePhone(contact.phone),
       relation: typeof contact.relation === "string" ? contact.relation : undefined,
+      messagePlatform: contact.messagePlatform === "sms" ? "sms" : contact.messagePlatform === "imessage" ? "imessage" : undefined,
     });
   }
   return parsed;

@@ -6,17 +6,29 @@ import type { AnalysisResult } from "./types.js";
 import { alertFamily } from "./familyRelay.js";
 import { tts } from "./tts.js";
 import { scrubBannedWords } from "./bannedWords.js";
+import { redactOutput } from "./guardrails.js";
 
 const FOOTER = "Automated check — it can be wrong. Verify with the company directly.";
 
+/** none: store the case and stay quiet. text: text plus voice note. call: those, plus a call and family alert. */
+export function notifyLevel(result: AnalysisResult): "none" | "text" | "call" {
+  if (result.modelFailed && result.rulesFloor < 75) return "none";
+  if (result.risk_score < 40) return "none";
+  if (result.risk_score < 75) return "text";
+  return "call";
+}
+
 export function alertCopy(result: AnalysisResult, short: boolean): string {
+  if (result.modelFailed && result.risk_score < 75) {
+    return scrubBannedWords("I could not finish checking this message. Please do not click links or share codes.");
+  }
   if (short || result.risk_score < 40) {
     return scrubBannedWords("I don't see red flags, but be careful.");
   }
   const icon = result.risk_score >= 75 ? "🚨" : "⚠️";
   const label = result.verdict === "scam" || result.risk_score >= 75 ? "This is a scam" : "This looks suspicious";
   const flags = result.red_flags.slice(0, 3).map((flag) => `- ${scrubBannedWords(flag)}`).join("\n");
-  return scrubBannedWords(`${icon} ${label}\n${flags}\n${result.action}\n\n${FOOTER}`);
+  return redactOutput(scrubBannedWords(`${icon} ${label}\n${flags}\n${result.action}\n\n${FOOTER}`));
 }
 
 /** The only place that chooses call vs text vs silence for an email. */
@@ -35,28 +47,34 @@ export async function notifyEmail(user: User, result: AnalysisResult): Promise<v
     latencyMs: 0,
   });
   const id = String(caseId);
-  if (result.risk_score < 40) return;
+  const level = notifyLevel(result);
+  if (level === "none") return;
 
-  const text = alertCopy(result, false);
-  await sendText(user.phone, text);
-  await updateCase(id, { notifiedVia: "text" });
-  await deliverVoice(user.phone, result.spoken_summary);
+  // A failed text must not stop the warning call below: the call is the high-risk path.
+  try {
+    await sendText(user.phone, alertCopy(result, false), user.messagePlatform);
+    await updateCase(id, { notifiedVia: "text" });
+  } catch (error) {
+    console.error("alert text failed case=" + id + " error=" + (error as Error).name);
+  }
+  if (user.messagePlatform === "imessage") await deliverVoice(user.phone, result.spoken_summary);
 
-  if (result.risk_score < 75) return;
-  await startWarningCall({
+  if (level === "text") return;
+  const conversationId = await startWarningCall({
     toPhone: user.phone,
     caseId: id,
     language: user.language,
     userName: user.displayName,
     brand: result.claimed_brand ?? undefined,
     scamType: result.scam_type,
+    opening: scrubBannedWords(result.spoken_summary),
   });
-  await updateCase(id, { notifiedVia: "call" });
+  if (conversationId) await updateCase(id, { notifiedVia: "call" });
   if (user.familyContacts.length > 0) await alertFamily(user, { scamType: result.scam_type, caseId: id });
 }
 
 export async function deliverVoice(phone: string, spoken: string): Promise<void> {
-  const audio = await tts(scrubBannedWords(spoken));
+  const audio = await tts(redactOutput(scrubBannedWords(spoken)));
   if (!audio) return;
   try {
     await sendVoiceNote(phone, audio);

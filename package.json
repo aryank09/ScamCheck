@@ -9,10 +9,11 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "fixtures": "tsx scripts/runFixtures.ts",
+    "test": "tsx --test tests/reviewFixes.test.ts tests/familyDashboard.test.ts tests/accounts.test.ts tests/veyzlProbes.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@google/genai": "^1.22.0",
+    "@google/genai": "^2.30.0",
     "@photon-ai/api": "^0.5.0",
     "googleapis": "^186.0.0",
     "mongodb": "^7.7.0",

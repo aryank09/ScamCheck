@@ -3,10 +3,11 @@ import { collectEvidence } from "../core/evidence.js";
 import { analyze } from "../core/analyze.js";
 import { notifyEmail } from "../core/notify.js";
 import { recentSummaries } from "../core/memory.js";
+import { displayNameFromHeader } from "./headers.js";
 import { parseHtml } from "./parse.js";
 import { decryptToken } from "./tokens.js";
 import { oauthClient } from "./oauth.js";
-import { listGmailUsers, saveUser, type User } from "../db/users.js";
+import { incrementEmailsChecked, listGmailUsers, saveUser, type User } from "../db/users.js";
 import type { MessageLink, ParsedMessage } from "../core/types.js";
 
 const URGENCY = /urgent|immediately|gift\s*card|wire|password|verify your account|small fee|suspended/i;
@@ -14,14 +15,20 @@ const URGENCY = /urgent|immediately|gift\s*card|wire|password|verify your accoun
 export function startEmailWatcher(): void {
   const seconds = Number(process.env.EMAIL_POLL_SECONDS ?? "20");
   const delay = Number.isFinite(seconds) && seconds >= 10 ? seconds * 1000 : 20_000;
-  setInterval(() => {
-    pollInboxes().catch((error: unknown) => {
-      console.error("gmail poll failed error=" + (error as Error).name);
-    });
-  }, delay);
-  pollInboxes().catch((error: unknown) => {
-    console.error("gmail poll failed error=" + (error as Error).name);
-  });
+  let polling = false;
+  const run = () => {
+    if (polling) return;
+    polling = true;
+    pollInboxes()
+      .catch((error: unknown) => {
+        console.error("gmail poll failed error=" + (error as Error).name);
+      })
+      .finally(() => {
+        polling = false;
+      });
+  };
+  setInterval(run, delay);
+  run();
 }
 
 async function pollInboxes(): Promise<void> {
@@ -50,8 +57,8 @@ async function pollUser(user: User): Promise<void> {
   const ids = (listed.data.messages ?? []).map((message) => message.id).filter((id): id is string => Boolean(id));
   for (const id of ids) {
     if (user.seenEmailIds.includes(id)) continue;
-    const full = await gmail.users.messages.get({ userId: "me", id, format: "full" });
     try {
+      const full = await gmail.users.messages.get({ userId: "me", id, format: "full" });
       const parsed = parseGmail(full.data);
       const findings = collectEvidence(parsed);
       const worthModel =
@@ -66,11 +73,13 @@ async function pollUser(user: User): Promise<void> {
         });
         await notifyEmail(user, result);
       }
+      const alreadySeen = user.seenEmailIds.length;
+      await saveUser(user._id, { seenEmailId: id, gmail: { ...user.gmail, lastCheckedAt: new Date() } });
+      await incrementEmailsChecked(user._id, alreadySeen);
+      user.seenEmailIds.push(id);
     } catch (error) {
       console.error("gmail message failed error=" + (error as Error).name);
     }
-    await saveUser(user._id, { seenEmailId: id, gmail: { ...user.gmail, lastCheckedAt: new Date() } });
-    user.seenEmailIds.push(id);
   }
 }
 
@@ -92,19 +101,13 @@ function parseGmail(message: gmail_v1.Schema$Message): ParsedMessage {
     from: header("from"),
     replyTo: header("reply-to"),
     subject: header("subject"),
-    displayName: displayName(header("from")),
+    displayName: displayNameFromHeader(header("from")),
     text: plain || parsedHtml.text,
     html,
     links: parsedHtml.links,
     authenticationResults: header("authentication-results"),
     seenSenderBefore: false,
   };
-}
-
-function displayName(from: string | undefined): string | undefined {
-  if (!from) return undefined;
-  const name = from.split("<")[0]?.replace(/"/g, "").trim();
-  return name || undefined;
 }
 
 function partText(part: gmail_v1.Schema$MessagePart | undefined, mime: string): string | undefined {

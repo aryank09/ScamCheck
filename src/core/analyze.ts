@@ -3,8 +3,10 @@ import { z } from "zod";
 import { loadConfig } from "../config.js";
 import { scrubBannedWords } from "./bannedWords.js";
 import { collectEvidence, rulesFloor } from "./evidence.js";
+import { redactForModel } from "./guardrails.js";
 import { buildAnalysisPrompt } from "./prompt.js";
-import type { AnalysisContext, AnalysisResult, Finding, Verdict } from "./types.js";
+import type { AnalysisImage } from "./images.js";
+import type { AnalysisContext, AnalysisResult, Finding, ParsedMessage, Verdict } from "./types.js";
 
 const GEMINI_TIMEOUT_MS = 15_000;
 
@@ -55,37 +57,65 @@ const DEFAULT_CONTEXT: AnalysisContext = {
 export async function analyze(
   message: ParsedMessageInput,
   context: AnalysisContext = DEFAULT_CONTEXT,
+  image?: AnalysisImage,
 ): Promise<AnalysisResult> {
   const findings = collectEvidence(message);
   const config = loadConfig();
   if (!config.GEMINI_API_KEY) {
-    return combine(fallbackVerdict(), findings);
+    return analysisWithoutModel(message);
   }
 
-  const prompt = buildAnalysisPrompt(message, findings, context);
+  // Rules ran on the original; the model never sees card or Social Security numbers.
+  const forModel = {
+    ...message,
+    text: redactForModel(message.text),
+    ...(message.html ? { html: redactForModel(message.html) } : {}),
+    ...(message.subject ? { subject: redactForModel(message.subject) } : {}),
+  };
+  const prompt = buildAnalysisPrompt(forModel, findings, context, Boolean(image));
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const verdict = await requestVerdict(config.GEMINI_API_KEY, config.GEMINI_MODEL, prompt);
-      return combine(verdict, findings);
+      const verdict = await requestVerdict(config.GEMINI_API_KEY, config.GEMINI_MODEL, prompt, image);
+      return combine(verdict, findings, false);
     } catch (error) {
       lastError = error;
     }
   }
   console.error("Gemini verdict failed after one retry:", errorMessage(lastError));
-  return combine(fallbackVerdict(), findings);
+  return combine(fallbackVerdict(findings), findings, true);
+}
+
+/** Score from the rules only. Used when Gemini is unavailable, and by tests. */
+export function analysisWithoutModel(message: ParsedMessage): AnalysisResult {
+  const findings = collectEvidence(message);
+  return combine(fallbackVerdict(findings), findings, true);
 }
 
 type ParsedMessageInput = Parameters<typeof collectEvidence>[0];
 
-async function requestVerdict(apiKey: string, model: string, prompt: string): Promise<Verdict> {
+async function requestVerdict(
+  apiKey: string,
+  model: string,
+  prompt: string,
+  image?: AnalysisImage,
+): Promise<Verdict> {
   const ai = new GoogleGenAI({ apiKey });
+  const input = image
+    ? [
+        { type: "text" as const, text: prompt },
+        { type: "image" as const, data: image.data.toString("base64"), mime_type: image.mimeType },
+      ]
+    : prompt;
   const interaction = await ai.interactions.create(
     {
       model,
-      input: prompt,
-      response_format: VERDICT_JSON_SCHEMA,
-      response_mime_type: "application/json",
+      input,
+      response_format: {
+        type: "text",
+        mime_type: "application/json",
+        schema: VERDICT_JSON_SCHEMA,
+      },
       store: false,
       stream: false,
     },
@@ -94,7 +124,7 @@ async function requestVerdict(apiKey: string, model: string, prompt: string): Pr
   if (interaction.status === "failed" || interaction.status === "cancelled") {
     throw new Error(`gemini interaction ${interaction.status}`);
   }
-  const parsed = verdictSchema.parse(parseJsonObject(textFromInteraction(interaction.outputs)));
+  const parsed = verdictSchema.parse(parseJsonObject(textFromInteraction(interaction.output_text)));
   return {
     ...parsed,
     risk_score: Math.round(parsed.risk_score),
@@ -103,14 +133,10 @@ async function requestVerdict(apiKey: string, model: string, prompt: string): Pr
   };
 }
 
-function textFromInteraction(outputs: { type: string; text?: string }[] | undefined): string {
-  const text = (outputs ?? [])
-    .filter((output) => output.type === "text" && typeof output.text === "string")
-    .map((output) => output.text)
-    .join("")
-    .trim();
+function textFromInteraction(output: string | undefined): string {
+  const text = (output ?? "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   if (!text) throw new Error("gemini returned no text");
-  return text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  return text;
 }
 
 function parseJsonObject(text: string): unknown {
@@ -120,9 +146,9 @@ function parseJsonObject(text: string): unknown {
   return JSON.parse(text.slice(start, end + 1));
 }
 
-function combine(verdict: Verdict, findings: Finding[]): AnalysisResult {
+function combine(verdict: Verdict, findings: Finding[], modelFailed: boolean): AnalysisResult {
   const floor = rulesFloor(findings);
-  const risk_score = Math.max(floor, clampScore(verdict.risk_score));
+  const risk_score = Math.max(floor, modelFailed ? 0 : clampScore(verdict.risk_score));
   const scrubbed = scrubVerdict(verdict);
   return {
     ...scrubbed,
@@ -130,19 +156,34 @@ function combine(verdict: Verdict, findings: Finding[]): AnalysisResult {
     risk_score,
     findings,
     rulesFloor: floor,
+    modelFailed,
   };
 }
 
-function fallbackVerdict(): Verdict {
+function fallbackVerdict(findings: Finding[]): Verdict {
+  const highs = findings.filter((finding) => finding.severity === "high").slice(0, 3);
+  if (highs.length === 0) {
+    return {
+      verdict: "suspicious",
+      risk_score: 0,
+      scam_type: "unconfirmed",
+      claimed_brand: null,
+      red_flags: ["The automatic check did not finish. Treat this with caution."],
+      spoken_summary: "I could not finish checking this message. Please do not click links or share codes.",
+      action: "Confirm with the company using a number you already trust.",
+      case_summary: "Automatic check failed, so nothing was sent.",
+      matches_recent_case: false,
+    };
+  }
   return {
-    verdict: "suspicious",
-    risk_score: 50,
-    scam_type: "unconfirmed",
+    verdict: "scam",
+    risk_score: 0,
+    scam_type: "impersonation",
     claimed_brand: null,
-    red_flags: ["The automatic check did not finish. Treat this with caution."],
-    spoken_summary: "I could not finish checking this message. Please do not click links or share codes.",
+    red_flags: highs.map((finding) => finding.detail),
+    spoken_summary: "This message has a clear warning sign. Please do not click links or share codes.",
     action: "Confirm with the company using a number you already trust.",
-    case_summary: "Automatic check failed, so the message was left as suspicious.",
+    case_summary: "Automatic check failed, but a high-risk pattern was already found.",
     matches_recent_case: false,
   };
 }

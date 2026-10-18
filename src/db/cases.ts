@@ -1,7 +1,7 @@
 import { ObjectId } from "mongodb";
 import { getDb } from "./mongo.js";
 
-export type CaseSource = "email" | "imessage" | "whatsapp" | "call";
+export type CaseSource = "email" | "imessage" | "sms" | "whatsapp" | "call";
 export type CaseVerdict = "scam" | "suspicious" | "no_red_flags";
 export type NotifyChannel = "call" | "text" | "digest";
 export type UserAction = "paid" | "clicked" | "ignored" | "confirmed_real";
@@ -102,6 +102,18 @@ export async function listRecentCases(query: {
     .find({ createdAt: { $gte: since }, $or: or })
     .sort({ createdAt: -1 })
     .limit(20)
+    .toArray();
+}
+
+/** This user's cases only, newest first. Does not pull the rest of the family group. */
+export async function listCasesForUser(userId: ObjectId, days: number): Promise<CaseRecord[]> {
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const db = await getDb();
+  return db
+    .collection<CaseRecord>("cases")
+    .find({ userId, createdAt: { $gte: since } })
+    .sort({ createdAt: -1 })
+    .limit(200)
     .toArray();
 }
 

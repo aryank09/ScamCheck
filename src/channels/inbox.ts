@@ -1,23 +1,42 @@
-import { listInboundTexts } from "./photon.js";
+import { listInboundTexts, type MessagePlatform } from "./photon.js";
 import { handleInboundText } from "../core/inbound.js";
 
 let started = false;
 
-/** Poll Photon for received iMessages. Beta docs use listMessages, not an invented webhook body. */
+/** Poll Photon for received iMessages and SMS. Beta docs use listMessages, not an invented webhook body. */
 export function startInbox(): void {
   if (started || !process.env.PHOTON_API_KEY || !process.env.PHOTON_PROJECT_ID) return;
   started = true;
   let since = new Date(Date.now() - 20_000).toISOString();
+  let ticking = false;
   const tick = async () => {
-    const batch = await listInboundTexts(since);
-    for (const message of batch) {
-      if (message.createdAt > since) since = message.createdAt;
-      await handleInboundText(message.id, message.phone, message.text);
+    if (ticking) return;
+    ticking = true;
+    try {
+      // Each channel on its own: an SMS error (not enabled, carrier, API) must not stop iMessage.
+      const platforms = ["imessage", "sms"] as const satisfies readonly MessagePlatform[];
+      const results = await Promise.allSettled(platforms.map((platform) => listInboundTexts(since, platform)));
+      results.forEach((result, i) => {
+        if (result.status === "rejected") {
+          console.error(platforms[i] + " poll failed error=" + (result.reason as Error).name);
+        }
+      });
+      const batch = results
+        .flatMap((result) => (result.status === "fulfilled" ? result.value : []))
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      for (const message of batch) {
+        await handleInboundText(message);
+        if (message.createdAt > since) since = message.createdAt;
+      }
+    } finally {
+      ticking = false;
     }
   };
-  setInterval(() => {
+  const run = () => {
     tick().catch((error: unknown) => {
-      console.error("imessage poll failed error=" + (error as Error).name);
+      console.error("message poll failed error=" + (error as Error).name);
     });
-  }, 5_000);
+  };
+  setInterval(run, 5_000);
+  run();
 }

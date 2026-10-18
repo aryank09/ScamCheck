@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { sendText, sendVoiceNote } from "../channels/photon.js";
 import { loadConfig } from "../config.js";
-import { listRecentCases, updateCase } from "../db/cases.js";
+import { listCasesForUser, listRecentCases, updateCase } from "../db/cases.js";
 import type { FamilyContact, User } from "../db/users.js";
 import { scrubBannedWords } from "./bannedWords.js";
 import { tts } from "./tts.js";
@@ -18,20 +18,28 @@ export async function alertFamily(
     `ScamCheck: ${name} received a likely scam (${alert.scamType}). ` +
     `They were told not to click or reply. Reply here and I'll pass your message to ${name}.`;
   for (const contact of user.familyContacts) {
-    await sendText(contact.phone, text);
+    // iMessage until this contact has texted us on SMS; SMS depends on carrier registration.
+    await sendText(contact.phone, text, contact.messagePlatform ?? "imessage");
   }
   if (alert.caseId) await updateCase(alert.caseId, { familyAlerted: true });
 }
 
-export async function relayFamilyReply(user: User, contact: FamilyContact, text: string): Promise<string> {
-  const cases = await listRecentCases({ userId: user._id, familyGroupId: user.familyGroupId, days: 7 });
+export async function relayFamilyReply(
+  user: User,
+  contact: FamilyContact,
+  text: string,
+  options?: { userOnly?: boolean },
+): Promise<string> {
+  const cases = options?.userOnly
+    ? await listCasesForUser(user._id, 7)
+    : await listRecentCases({ userId: user._id, familyGroupId: user.familyGroupId, days: 7 });
   const open = cases.find((item) => item.verdict !== "no_red_flags" && !item.familyResponse);
   if (!open) return "There is no open ScamCheck alert to reply to.";
 
   const translated = await translate(text, user.language);
   const note = scrubBannedWords(`Message from ${contact.name}: ${translated}`);
-  await sendText(user.phone, note);
-  const audio = await tts(note);
+  await sendText(user.phone, note, user.messagePlatform);
+  const audio = user.messagePlatform === "imessage" ? await tts(note) : null;
   if (audio) {
     try {
       await sendVoiceNote(user.phone, audio);
@@ -39,13 +47,24 @@ export async function relayFamilyReply(user: User, contact: FamilyContact, text:
       console.error("voice note failed error=" + (error as Error).name);
     }
   }
-  const confirmed = /\b(i ordered|that's real|thats real|this is real|it's real|it is real)\b/i.test(text);
+  const confirmed = saysItIsReal(text);
   await updateCase(String(open._id), {
     familyResponse: `${contact.name}: ${translated}`,
     userAction: confirmed ? "confirmed_real" : undefined,
   });
-  if (confirmed) await sendText(user.phone, `${contact.name} says this one is real.`);
+  if (confirmed) await sendText(user.phone, `${contact.name} says this one is real.`, user.messagePlatform);
   return `I passed that to ${user.displayName?.trim() || "them"}.`;
+}
+
+/**
+ * True only for a plain "it's real" with no negation, so "Don't pay, I ordered nothing"
+ * never marks a scam real. A missed "yes" is the safe miss: the user still gets the message.
+ * ponytail: English phrases only.
+ */
+export function saysItIsReal(text: string): boolean {
+  const t = text.toLowerCase();
+  if (/\b(not|never|nothing|no|don'?t|didn'?t|isn'?t|scam|fake)\b|n't\b/.test(t)) return false;
+  return /\b(i ordered (it|that|this)|it'?s real|that'?s real|this is real|it is real)\b/.test(t);
 }
 
 async function translate(text: string, language: string): Promise<string> {
@@ -65,8 +84,8 @@ async function translate(text: string, language: string): Promise<string> {
       },
       { timeout: 10_000, maxRetries: 0 },
     );
-    const output = (interaction.outputs ?? []).find((item) => item.type === "text");
-    if (output?.type === "text" && output.text.trim()) return clip(output.text);
+    const output = interaction.output_text?.trim();
+    if (output) return clip(output);
   } catch (error) {
     console.error("translate failed error=" + (error as Error).name);
   }
