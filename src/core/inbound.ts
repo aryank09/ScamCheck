@@ -8,7 +8,6 @@ import {
   joinFamilyGroups,
   normalizePhone,
   saveUser,
-  setFamilyContactPlatform,
   type FamilyContact,
   type User,
 } from "../db/users.js";
@@ -17,14 +16,14 @@ import { alertFamily, relayFamilyReply } from "./familyRelay.js";
 import type { AnalysisImage } from "./images.js";
 import { recentSummaries } from "./memory.js";
 import { alertCopy, deliverVoice, deliverWarningCall, notifyLevel } from "./notify.js";
-import { advanceOnboarding, currentPrompt } from "./onboarding.js";
+import { advanceOnboarding, currentPrompt, replyOnImessage } from "./onboarding.js";
 import { applyAddedParent } from "./parentProfile.js";
 import { analyze } from "./analyze.js";
 import { isAssistantRequest, preCheck, withRefusal } from "./guardrails.js";
 import type { ParsedMessage } from "./types.js";
 
 const seen = new Set<string>();
-// A send that keeps failing (e.g. Photon SMS_CAMPAIGN_NOT_ELIGIBLE) must not block the inbox forever.
+// A send that keeps failing must not block the inbox forever.
 const MAX_ATTEMPTS = 3;
 const attempts = new Map<string, number>();
 
@@ -82,10 +81,6 @@ async function dispatch(message: InboundText, progress: { sent: boolean }): Prom
   if (!ownMessage) {
     const target = await relayTarget(normalized);
     if (target) {
-      if (target.contact.messagePlatform !== message.platform) {
-        await setFamilyContactPlatform(target.user._id, normalized, message.platform);
-        target.contact.messagePlatform = message.platform;
-      }
       const note = text
         ? await relayFamilyReply(target.user, target.contact, text)
         : "Send that as a text and I will pass it on.";
@@ -94,10 +89,10 @@ async function dispatch(message: InboundText, progress: { sent: boolean }): Prom
     }
   }
 
-  const user = existing ?? (await createUser(normalized, message.platform));
-  if (user.messagePlatform !== message.platform) {
-    user.messagePlatform = message.platform;
-    await saveUser(user._id, { messagePlatform: message.platform });
+  const user = existing ?? (await createUser(normalized, "imessage"));
+  if (user.messagePlatform !== "imessage") {
+    user.messagePlatform = "imessage";
+    await saveUser(user._id, { messagePlatform: "imessage" });
   }
   await applyAddedParent(user);
   await joinFamilyGroups(user);
@@ -124,7 +119,14 @@ async function dispatch(message: InboundText, progress: { sent: boolean }): Prom
     return;
   }
 
-  if (!forwarded) await reply(normalized, "Forward a message and I will check it, or send HELP.", message, progress);
+  if (!forwarded) {
+    await reply(
+      normalized,
+      "Forward a message to me on iMessage and I will check it, or send HELP.",
+      message,
+      progress,
+    );
+  }
 }
 
 async function reply(
@@ -134,7 +136,7 @@ async function reply(
   progress: { sent: boolean },
   commit = true,
 ): Promise<void> {
-  await sendText(phone, text, message.platform);
+  await sendText(phone, replyOnImessage(text, message.platform));
   if (commit) progress.sent = true;
 }
 
@@ -191,7 +193,7 @@ async function checkForward(
   const level = notifyLevel(result);
   const copy = alertCopy(result, level === "none");
   await reply(phone, isAssistantRequest(text) ? withRefusal(copy, level === "none") : copy, message, progress);
-  if (level !== "none" && message.platform === "imessage") await deliverVoice(phone, result.spoken_summary);
+  if (level !== "none") await deliverVoice(phone, result.spoken_summary);
   const caseId = await createCase({
     userId: user._id,
     familyGroupId: user.familyGroupId,

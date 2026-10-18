@@ -4,7 +4,7 @@ import { decryptToken } from "../email/tokens.js";
 import { revokeGmail } from "../email/oauth.js";
 import { alertFamily } from "./familyRelay.js";
 import { startWarningCall } from "../voice/outbound.js";
-import { familyPageLink, languageCode, parseFamily } from "./onboarding.js";
+import { familyPageLink, IMESSAGE_TEXT_LINE, languageCode, parseFamily } from "./onboarding.js";
 
 const COMMAND_RE = /^(language|family|help|stop|paid|clicked|dashboard|remove|allow)\b/i;
 
@@ -37,7 +37,7 @@ export async function handleCommand(user: User, text: string): Promise<string | 
   const rest = (match[2] ?? "").trim();
 
   if (command === "help") {
-    return "Forward a message and I will check it. Commands: LANGUAGE, FAMILY, REMOVE, HELP, STOP, PAID, CLICKED, DASHBOARD. Or just call me.";
+    return `Forward a message to me on iMessage and I will check it. ${IMESSAGE_TEXT_LINE} Commands: LANGUAGE, FAMILY, REMOVE, HELP, STOP, PAID, CLICKED, DASHBOARD. Or just call me.`;
   }
   if (command === "dashboard") {
     return dashboardReply(user);
@@ -71,7 +71,7 @@ export async function handleCommand(user: User, text: string): Promise<string | 
   if (command === "stop") {
     await revokeStoredGmail(user);
     await deleteUser(user._id);
-    return "Your ScamCheck data is deleted. Text me again if you want to start over.";
+    return "Your ScamCheck data is deleted. Text me on iMessage again if you want to start over.";
   }
   if (command === "paid" || command === "clicked") {
     // Attach to their newest flagged case so the record, family alert, and call all name the real scam.

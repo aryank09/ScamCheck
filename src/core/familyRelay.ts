@@ -16,11 +16,11 @@ export async function alertFamily(
   const name = user.displayName?.trim() || "Your family member";
   const text =
     `ScamCheck: ${name} received a likely scam (${alert.scamType}). ` +
-    `They were told not to click or reply. Reply here and I'll pass your message to ${name}.`;
+    `They were told not to click or reply. Reply on iMessage and I'll pass your message to ${name}.`;
   for (const contact of user.familyContacts) {
-    // One helper failing must not retry the parent's warning. iMessage until they text us on SMS.
+    // One helper failing must not retry the parent's warning. Text goes out on iMessage.
     try {
-      await sendText(contact.phone, text, contact.messagePlatform ?? "imessage");
+      await sendText(contact.phone, text);
     } catch (error) {
       console.error("family alert failed error=" + (error as Error).name);
     }
@@ -42,8 +42,8 @@ export async function relayFamilyReply(
 
   const translated = await translate(text, user.language);
   const note = scrubBannedWords(`Message from ${contact.name}: ${translated}`);
-  await sendText(user.phone, note, user.messagePlatform);
-  const audio = user.messagePlatform === "imessage" ? await tts(note) : null;
+  await sendText(user.phone, note);
+  const audio = await tts(note);
   if (audio) {
     try {
       await sendVoiceNote(user.phone, audio);
@@ -56,7 +56,7 @@ export async function relayFamilyReply(
     familyResponse: `${contact.name}: ${translated}`,
     userAction: confirmed ? "confirmed_real" : undefined,
   });
-  if (confirmed) await sendText(user.phone, `${contact.name} says this one is real.`, user.messagePlatform);
+  if (confirmed) await sendText(user.phone, `${contact.name} says this one is real.`);
   return `I passed that to ${user.displayName?.trim() || "them"}.`;
 }
 

@@ -38,8 +38,8 @@ const LANGUAGE_LABELS: Record<string, string> = {
 };
 
 const NOTICES: Record<string, string> = {
-  added: "Added. SMS status is on their card. Reload this page to check delivery.",
-  watching: "Added. Their summaries are on this page. We texted them a heads-up; SMS status is on their card.",
+  added: "Added. iMessage status is on their card. Reload this page to check delivery.",
+  watching: "Added. Their summaries are on this page. We texted them on iMessage; status is on their card.",
   removed: "Removed from your account.",
 };
 
@@ -165,7 +165,7 @@ async function addParent(account: Account, fields: Record<string, string>): Prom
   const watching = parentIsWatching(user?.consentAcceptedAt);
   // No confirmation step (team decision 10-17-26): adding a parent shows their summaries right away.
   // ponytail: anyone who knows a consenting parent's number can see their summaries; restore a
-  // parent-side approval before real launch. The heads-up text keeps the parent informed.
+  // parent-side approval before real launch. The heads-up iMessage keeps the parent informed.
   await saveParentInvite(account._id, parsed.value.phone, await notifyParent(account.name, parsed.value.phone));
   return { status: 303, redirect: "/app?notice=" + (watching ? "watching" : "added") };
 }
@@ -178,8 +178,7 @@ async function notifyParent(
     const sent = await sendText(
       phone,
       `${name} added you on the ScamCheck website and can see your scam warning summaries there ` +
-        "(never your messages).",
-      "sms",
+        "(never your messages). This note is on iMessage. The SMS number is for phone calls only.",
     );
     return {
       messageId: sent.id,
@@ -189,7 +188,7 @@ async function notifyParent(
   } catch (error) {
     console.error("parent heads-up failed error=" + (error as Error).name);
     const message = error instanceof Error ? error.message : "";
-    const failure = /is not set|No sms agent/.test(message) ? "not_configured" : "send_failed";
+    const failure = /is not set|No imessage agent/.test(message) ? "not_configured" : "send_failed";
     return { status: "failed", failure };
   }
 }
@@ -242,7 +241,7 @@ function dashboardPage(account: Account, cards: ParentCard[], notice: string, er
         </div>
         <form method="post" action="/logout"><button class="ghost" type="submit">Log out</button></form>
       </div>
-      <p class="lede">Add a parent by name and mobile number. We text them a heads-up so you can see if it was delivered. Their summaries show once they're using ScamCheck.</p>
+      <p class="lede">Add a parent by name and mobile number. We send one iMessage so you can see if it was delivered. Their summaries show once they're using ScamCheck.</p>
       ${banner(notice, error)}
       <section class="panel">
         <h2>Add a parent</h2>
@@ -277,8 +276,8 @@ function renderCard(card: ParentCard): string {
   const status = card.watching
     ? `<span class="pill watching">Watching</span>`
     : `<span class="pill waiting">Waiting for them</span>`;
-  const sms = `<p class="meta">${escapeHtml(textStatusLabel(card.link.inviteStatus, card.link.inviteFailure))}</p>`;
-  const check = inviteStillOpen(card.link.inviteStatus) ? `<p class="fine"><a href="/app">Check SMS status</a></p>` : "";
+  const delivery = `<p class="meta">${escapeHtml(textStatusLabel(card.link.inviteStatus, card.link.inviteFailure))}</p>`;
+  const check = inviteStillOpen(card.link.inviteStatus) ? `<p class="fine"><a href="/app">Check iMessage status</a></p>` : "";
   const body = card.watching && card.snapshot
     ? metricsBlock(card.snapshot)
     : `<p class="lede">Summaries show here once they start using ScamCheck.</p>`;
@@ -287,7 +286,7 @@ function renderCard(card: ParentCard): string {
       <div><h3>${escapeHtml(who)}</h3><p class="meta">···${escapeHtml(last4)} · ${escapeHtml(language)}</p></div>
       ${status}
     </header>
-    ${sms}
+    ${delivery}
     ${check}
     ${body}
     <form method="post" action="/app/parents/remove">

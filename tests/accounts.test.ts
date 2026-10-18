@@ -32,17 +32,17 @@ describe("website accounts", () => {
     assert.equal(parseParent({ name: "Rashid", phone: "2065550100", language: "fr" }).ok, false);
   });
 
-  it("describes Photon SMS delivery without the phone number", () => {
-    assert.equal(textStatusLabel(undefined), "SMS not sent");
-    assert.equal(textStatusLabel("dispatched"), "SMS sent, waiting on the carrier");
-    assert.equal(textStatusLabel("accepted"), "SMS accepted by the carrier");
-    assert.equal(textStatusLabel("delivered"), "SMS delivered");
+  it("describes Photon iMessage delivery without the phone number", () => {
+    assert.equal(textStatusLabel(undefined), "iMessage not sent");
+    assert.equal(textStatusLabel("dispatched"), "iMessage sent, waiting on delivery");
+    assert.equal(textStatusLabel("accepted"), "iMessage accepted");
+    assert.equal(textStatusLabel("delivered"), "iMessage delivered");
     assert.equal(
       textStatusLabel("failed", "recipient_invalid"),
-      "SMS failed. That number does not look like a mobile number.",
+      "iMessage failed. That number does not look like a mobile number.",
     );
-    assert.equal(textStatusLabel("failed", "not_configured"), "SMS failed. SMS is not set up.");
-    assert.equal(textStatusLabel("failed"), "SMS failed.");
+    assert.equal(textStatusLabel("failed", "not_configured"), "iMessage failed. iMessage is not set up.");
+    assert.equal(textStatusLabel("failed"), "iMessage failed.");
     assert.equal(inviteStillOpen("accepted"), true);
     assert.equal(inviteStillOpen("delivered"), false);
     assert.equal(inviteStillOpen("failed"), false);
