@@ -7,13 +7,24 @@ const CONSENT: Record<string, string> = {
   es: "ScamCheck es una herramienta automatica que usa IA. Puede no ver una estafa y puede marcar un mensaje real por error. No es una garantia y no esta afiliada a ningun banco, empresa o gobierno. Confirma siempre con la empresa, usando el numero de tu tarjeta o su sitio. Nunca compartas codigos ni contrasenas. Al responder SI, aceptas que ScamCheck lea tu correo para buscar estafas. No guardamos tus correos ni mensajes. Responde STOP cuando quieras borrar tus datos.",
 };
 
-export function languageCode(text: string): string {
+const LANGUAGE_NAMES: readonly [RegExp, string][] = [
+  [/\b(spanish|espanol|castellano)\b|español/, "es"],
+  [/\burdu\b|اردو/, "ur"],
+  [/\bhindi\b|हिंदी|हिन्दी/, "hi"],
+  [/\benglish\b|ingl[eé]s/, "en"],
+];
+const LANGUAGE_CODES = new Set(["es", "ur", "hi", "en"]);
+
+/**
+ * Language code from free text, or null if not recognized.
+ * Bare codes only count with allowCodes (the LANGUAGE command): as a first message,
+ * "hi" is a greeting and "ur" is "your".
+ */
+export function languageCode(text: string, allowCodes = false): string | null {
   const value = text.trim().toLowerCase();
-  if (/\b(es|spanish|espanol|español)\b/.test(value)) return "es";
-  if (/\b(ur|urdu)\b/.test(value)) return "ur";
-  if (/\b(hi|hindi)\b/.test(value)) return "hi";
-  if (/\b(en|english)\b/.test(value)) return "en";
-  return value.slice(0, 32) || "en";
+  for (const [pattern, code] of LANGUAGE_NAMES) if (pattern.test(value)) return code;
+  if (allowCodes && LANGUAGE_CODES.has(value)) return value;
+  return null;
 }
 
 export function consentText(language: string): string {
@@ -40,11 +51,14 @@ export async function advanceOnboarding(user: User, text: string): Promise<strin
   const trimmed = text.trim();
 
   if (user.onboardingStep === "language") {
-    const language = languageCode(trimmed);
+    // AGENTS.md §13: unknown language → English, and say so.
+    const language = languageCode(trimmed) ?? "en";
     await saveUser(user._id, { language, onboardingStep: "consent" });
     user.language = language;
     user.onboardingStep = "consent";
-    return consentText(language);
+    return languageCode(trimmed)
+      ? consentText(language)
+      : `I'll use English for now. Send LANGUAGE and a language name anytime to change it.\n\n${consentText("en")}`;
   }
 
   if (user.onboardingStep === "consent") {

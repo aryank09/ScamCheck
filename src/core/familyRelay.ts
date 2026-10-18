@@ -39,13 +39,24 @@ export async function relayFamilyReply(user: User, contact: FamilyContact, text:
       console.error("voice note failed error=" + (error as Error).name);
     }
   }
-  const confirmed = /\b(i ordered|that's real|thats real|this is real|it's real|it is real)\b/i.test(text);
+  const confirmed = saysItIsReal(text);
   await updateCase(String(open._id), {
     familyResponse: `${contact.name}: ${translated}`,
     userAction: confirmed ? "confirmed_real" : undefined,
   });
   if (confirmed) await sendText(user.phone, `${contact.name} says this one is real.`);
   return `I passed that to ${user.displayName?.trim() || "them"}.`;
+}
+
+/**
+ * True only for a plain "it's real" with no negation, so "Don't pay, I ordered nothing"
+ * never marks a scam real. A missed "yes" is the safe miss: the user still gets the message.
+ * ponytail: English phrases only.
+ */
+export function saysItIsReal(text: string): boolean {
+  const t = text.toLowerCase();
+  if (/\b(not|never|nothing|no|don'?t|didn'?t|isn'?t|scam|fake)\b|n't\b/.test(t)) return false;
+  return /\b(i ordered (it|that|this)|it'?s real|that'?s real|this is real|it is real)\b/.test(t);
 }
 
 async function translate(text: string, language: string): Promise<string> {
