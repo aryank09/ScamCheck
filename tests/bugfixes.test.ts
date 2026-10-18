@@ -54,8 +54,9 @@ describe("quiet hours hold the warning call overnight", () => {
 });
 
 describe("commands and sender addresses", () => {
-  it("treats ALLOW as the sender's own command", () => {
-    assert.equal(isUserCommand("ALLOW"), true);
+  it("does not treat ALLOW as a command", () => {
+    assert.equal(isUserCommand("ALLOW"), false);
+    assert.equal(isUserCommand("HELP"), true);
     assert.equal(isUserCommand("Don't pay, I'll call you"), false);
   });
 
