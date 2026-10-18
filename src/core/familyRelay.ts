@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { sendText, sendVoiceNote } from "../channels/photon.js";
 import { loadConfig } from "../config.js";
-import { listRecentCases, updateCase } from "../db/cases.js";
+import { listCasesForUser, listRecentCases, updateCase } from "../db/cases.js";
 import type { FamilyContact, User } from "../db/users.js";
 import { scrubBannedWords } from "./bannedWords.js";
 import { tts } from "./tts.js";
@@ -23,8 +23,15 @@ export async function alertFamily(
   if (alert.caseId) await updateCase(alert.caseId, { familyAlerted: true });
 }
 
-export async function relayFamilyReply(user: User, contact: FamilyContact, text: string): Promise<string> {
-  const cases = await listRecentCases({ userId: user._id, familyGroupId: user.familyGroupId, days: 7 });
+export async function relayFamilyReply(
+  user: User,
+  contact: FamilyContact,
+  text: string,
+  options?: { userOnly?: boolean },
+): Promise<string> {
+  const cases = options?.userOnly
+    ? await listCasesForUser(user._id, 7)
+    : await listRecentCases({ userId: user._id, familyGroupId: user.familyGroupId, days: 7 });
   const open = cases.find((item) => item.verdict !== "no_red_flags" && !item.familyResponse);
   if (!open) return "There is no open ScamCheck alert to reply to.";
 

@@ -1,7 +1,7 @@
 import { downloadInboundImage, sendText, type InboundText } from "../channels/photon.js";
 import { createCase } from "../db/cases.js";
 import { createUser, findUserByFamilyPhone, findUserByPhone, normalizePhone, type User } from "../db/users.js";
-import { handleCommand } from "./commands.js";
+import { dashboardReply, handleCommand } from "./commands.js";
 import { alertFamily, relayFamilyReply } from "./familyRelay.js";
 import type { AnalysisImage } from "./images.js";
 import { recentSummaries } from "./memory.js";
@@ -18,6 +18,11 @@ export async function handleInboundText(message: InboundText): Promise<void> {
 
   const family = await findUserByFamilyPhone(normalized);
   if (family && family.user.phone !== normalized) {
+    if (/^dashboard\b/i.test(message.text.trim())) {
+      await sendText(normalized, await dashboardReply(family.user));
+      seen.add(message.id);
+      return;
+    }
     const reply = message.text.trim()
       ? await relayFamilyReply(family.user, family.contact, message.text)
       : "Send that as a text and I will pass it on.";

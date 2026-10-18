@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { startInbox } from "./channels/inbox.js";
 import { authRedirect, connectPage, finishConnect } from "./email/oauth.js";
 import { startEmailWatcher } from "./email/watcher.js";
+import { addHelper, familyErrorHtml, getFamilyApi, renderFamilyPage, replyOnFamilyPage } from "./web/family.js";
 import { checkToolSecret, voiceTools } from "./voice/tools.js";
 import { handlePostCall } from "./voice/postCall.js";
 
@@ -27,6 +28,30 @@ async function readRawBody(request: IncomingMessage, maxBytes = MAX_BODY_BYTES):
 function sendJson(response: ServerResponse, status: number, body: object): void {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(body));
+}
+
+function sendHtml(response: ServerResponse, status: number, html: string): void {
+  response.writeHead(status, {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-store",
+    "referrer-policy": "no-referrer",
+  });
+  response.end(html);
+}
+
+async function serveFamily(
+  response: ServerResponse,
+  load: () => Promise<{ status: number; body: object }>,
+): Promise<void> {
+  response.setHeader("cache-control", "no-store");
+  response.setHeader("referrer-policy", "no-referrer");
+  try {
+    const result = await load();
+    sendJson(response, result.status, result.body);
+  } catch (error) {
+    console.error("family page failed error=" + (error as Error).name);
+    sendJson(response, 500, { error: "That didn't work. Try again." });
+  }
 }
 
 function header(request: IncomingMessage, name: string): string | undefined {
@@ -64,6 +89,42 @@ const server = createServer(async (request, response) => {
     const result = await finishConnect(url.searchParams.get("code") ?? "", url.searchParams.get("state") ?? "");
     response.writeHead(result.status, { "content-type": "text/html; charset=utf-8" });
     response.end(result.html);
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/family") {
+    try {
+      const result = await renderFamilyPage(url.searchParams.get("t") ?? "");
+      sendHtml(response, result.status, result.html);
+    } catch (error) {
+      console.error("family page failed error=" + (error as Error).name);
+      sendHtml(response, 500, familyErrorHtml());
+    }
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/family/api") {
+    await serveFamily(response, () => getFamilyApi(url.searchParams.get("t") ?? ""));
+    return;
+  }
+
+  if (request.method === "POST" && (url.pathname === "/family/helpers" || url.pathname === "/family/reply")) {
+    const token = url.searchParams.get("t") ?? "";
+    try {
+      const rawBody = await readRawBody(request);
+      const payload: unknown = JSON.parse(rawBody.toString("utf8"));
+      const handler = url.pathname === "/family/helpers" ? addHelper : replyOnFamilyPage;
+      await serveFamily(response, () => handler(token, payload));
+    } catch (error) {
+      if (error instanceof PayloadTooLargeError) {
+        sendJson(response, 413, { error: "Request body is too large" });
+      } else if (error instanceof SyntaxError) {
+        sendJson(response, 400, { error: "Invalid JSON" });
+      } else {
+        console.error("family page failed error=" + (error as Error).name);
+        sendJson(response, 500, { error: "That didn't work. Try again." });
+      }
+    }
     return;
   }
 
