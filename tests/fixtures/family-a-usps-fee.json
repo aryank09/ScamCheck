@@ -1,0 +1,21 @@
+{
+  "id": "family-a-usps-fee",
+  "pair": "usps-fee",
+  "expectHighFinding": true,
+  "expectCodes": ["LOOKALIKE_DOMAIN"],
+  "message": {
+    "source": "email",
+    "from": "alerts@usps.com.package-hold.net",
+    "displayName": "USPS",
+    "subject": "Package fee",
+    "text": "USPS says a small fee is due before delivery. This copy was addressed to family member A.",
+    "links": [
+      {
+        "visibleText": "Pay fee",
+        "href": "https://usps.com.package-hold.net/pay"
+      }
+    ],
+    "authenticationResults": "mx.google.com; spf=fail; dkim=fail; dmarc=fail",
+    "seenSenderBefore": false
+  }
+}

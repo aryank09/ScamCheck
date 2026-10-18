@@ -8,6 +8,8 @@ const fixtureSchema = z.object({
   id: z.string().min(1),
   expectHighFinding: z.boolean(),
   expectCodes: z.array(z.string()).default([]),
+  /** Fixtures that share a pair must all be high. Used for the same scam hitting two people. */
+  pair: z.string().min(1).optional(),
   message: z.object({
     source: z.enum(["email", "imessage", "whatsapp"]),
     from: z.string().optional(),
@@ -32,6 +34,7 @@ async function main(): Promise<void> {
   let missed = 0;
   let falseAlarms = 0;
   const problems: string[] = [];
+  const pairs = new Map<string, { total: number; caught: number; ids: string[] }>();
 
   for (const fixture of fixtures) {
     const findings = collectEvidence(fixture.message);
@@ -40,7 +43,16 @@ async function main(): Promise<void> {
     const missingCodes = fixture.expectCodes.filter((code) => !codes.has(code));
     const floor = rulesFloor(findings);
 
-    if (fixture.expectHighFinding && hasHigh && missingCodes.length === 0 && floor >= 75) {
+    const passed = fixture.expectHighFinding && hasHigh && missingCodes.length === 0 && floor >= 75;
+    if (fixture.pair) {
+      const state = pairs.get(fixture.pair) ?? { total: 0, caught: 0, ids: [] };
+      state.total += 1;
+      state.ids.push(fixture.id);
+      if (passed) state.caught += 1;
+      pairs.set(fixture.pair, state);
+    }
+
+    if (passed) {
       caught += 1;
       console.log(`caught  ${fixture.id}  ${summarize(findings)}`);
     } else if (fixture.expectHighFinding || missingCodes.length > 0) {
@@ -53,6 +65,14 @@ async function main(): Promise<void> {
       problems.push(`false   ${fixture.id}  ${summarize(findings)}`);
     } else {
       console.log(`clear   ${fixture.id}  ${summarize(findings)}`);
+    }
+  }
+
+  for (const [pair, state] of pairs) {
+    if (state.total < 2 || state.caught !== state.total) {
+      problems.push(`pair ${pair} caught ${state.caught}/${state.total} (${state.ids.join(", ")})`);
+    } else {
+      console.log(`pair    ${pair}  ${state.ids.join(" + ")}`);
     }
   }
 

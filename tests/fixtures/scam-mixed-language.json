@@ -1,0 +1,11 @@
+{
+  "id": "scam-mixed-language",
+  "expectHighFinding": true,
+  "expectCodes": ["LOOKALIKE_DOMAIN"],
+  "message": {
+    "source": "whatsapp",
+    "from": "+15555550123",
+    "text": "Su cuenta de Chase está bloqueada. कृपया इस लिंक पर अभी क्लिक न करें: https://chase-login-help.net/verify",
+    "links": []
+  }
+}

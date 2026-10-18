@@ -1,0 +1,20 @@
+{
+  "id": "scam-wellsfargo-lookalike",
+  "expectHighFinding": true,
+  "expectCodes": ["LOOKALIKE_DOMAIN"],
+  "message": {
+    "source": "email",
+    "from": "alerts@wellsfarg0.com",
+    "displayName": "Wells Fargo",
+    "subject": "Sign-in from a new device",
+    "text": "Wells Fargo noticed a sign-in. Review it on the Wells Fargo site.",
+    "links": [
+      {
+        "visibleText": "Review sign-in",
+        "href": "https://wellsfarg0.com/review"
+      }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}
