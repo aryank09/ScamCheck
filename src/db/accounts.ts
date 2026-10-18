@@ -21,9 +21,7 @@ export interface ParentLink {
   language: string;
   relation?: string;
   userId?: ObjectId;
-  /** Set when the parent replies ALLOW. Until then the account sees no summaries. */
-  approvedAt?: Date;
-  /** Photon id of the ALLOW text, so the account page can show carrier status. */
+  /** Photon id of the heads-up text, so the account page can show carrier status. */
   inviteMessageId?: string;
   inviteStatus?: string;
   inviteFailure?: string;
@@ -242,19 +240,9 @@ function toLink(doc: Record<string, unknown> & { _id: ObjectId }): ParentLink {
   };
   if (typeof doc.relation === "string" && doc.relation) link.relation = doc.relation;
   if (doc.userId instanceof ObjectId) link.userId = doc.userId;
-  if (doc.approvedAt instanceof Date) link.approvedAt = doc.approvedAt;
   if (typeof doc.inviteMessageId === "string") link.inviteMessageId = doc.inviteMessageId;
   if (typeof doc.inviteStatus === "string") link.inviteStatus = doc.inviteStatus;
   if (typeof doc.inviteFailure === "string") link.inviteFailure = doc.inviteFailure;
   return link;
 }
 
-/** The parent replied ALLOW: every account that asked for this number may now see summaries. */
-export async function approveParentLinks(phone: string): Promise<number> {
-  await readyAccountStore();
-  const db = await getDb();
-  const result = await db
-    .collection("parentLinks")
-    .updateMany({ phone, approvedAt: { $exists: false } }, { $set: { approvedAt: new Date() } });
-  return result.modifiedCount;
-}
