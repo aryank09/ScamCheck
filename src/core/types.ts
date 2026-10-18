@@ -50,4 +50,6 @@ export interface AnalysisContext {
 export interface AnalysisResult extends Verdict {
   findings: Finding[];
   rulesFloor: number;
+  /** True when Gemini did not run or both attempts failed. The score is then the rules floor only. */
+  modelFailed: boolean;
 }

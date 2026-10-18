@@ -14,6 +14,8 @@ const LANGUAGE_NAMES: readonly [RegExp, string][] = [
   [/\benglish\b|ingl[eé]s/, "en"],
 ];
 const LANGUAGE_CODES = new Set(["es", "ur", "hi", "en"]);
+const NOT_A_LANGUAGE =
+  /^(hi|hello|hey|hola|yo|thanks|thank you|ok|okay|start|help|test|yes|no|si|sí|yep|yeah|nah|stop)\b/i;
 
 /**
  * Language code from free text, or null if not recognized.
@@ -24,6 +26,21 @@ export function languageCode(text: string, allowCodes = false): string | null {
   const value = text.trim().toLowerCase();
   for (const [pattern, code] of LANGUAGE_NAMES) if (pattern.test(value)) return code;
   if (allowCodes && LANGUAGE_CODES.has(value)) return value;
+  return null;
+}
+
+/**
+ * A language answer for the first onboarding question.
+ * Null means the text is a greeting or not a language, so the question should be asked again.
+ * An unrecognized language name falls back to English.
+ */
+export function languageAnswer(text: string): { code: string; recognized: boolean } | null {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.length > 40) return null;
+  if (NOT_A_LANGUAGE.test(trimmed)) return null;
+  const known = languageCode(trimmed);
+  if (known) return { code: known, recognized: true };
+  if (/^[\p{L}][\p{L}\s'.-]{0,40}$/u.test(trimmed)) return { code: "en", recognized: false };
   return null;
 }
 
@@ -51,14 +68,15 @@ export async function advanceOnboarding(user: User, text: string): Promise<strin
   const trimmed = text.trim();
 
   if (user.onboardingStep === "language") {
-    // AGENTS.md §13: unknown language → English, and say so.
-    const language = languageCode(trimmed) ?? "en";
-    await saveUser(user._id, { language, onboardingStep: "consent" });
-    user.language = language;
+    const answer = languageAnswer(trimmed);
+    if (!answer) return "What language should I use? For example: English, Spanish, Urdu, or Hindi.";
+    await saveUser(user._id, { language: answer.code, onboardingStep: "consent" });
+    user.language = answer.code;
     user.onboardingStep = "consent";
-    return languageCode(trimmed)
-      ? consentText(language)
-      : `I'll use English for now. Send LANGUAGE and a language name anytime to change it.\n\n${consentText("en")}`;
+    if (!answer.recognized) {
+      return `I don't have that language saved, so this is in English.\n\n${consentText("en")}`;
+    }
+    return consentText(answer.code);
   }
 
   if (user.onboardingStep === "consent") {

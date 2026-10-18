@@ -9,6 +9,7 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "fixtures": "tsx scripts/runFixtures.ts",
+    "test": "tsx --test tests/reviewFixes.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
