@@ -164,7 +164,10 @@ export async function saveUser(
 
 export async function deleteUser(id: ObjectId): Promise<void> {
   const db = await getDb();
+  const existing = await db.collection("users").findOne({ _id: id });
+  const phone = typeof existing?.phone === "string" ? existing.phone : "";
   await db.collection("cases").deleteMany({ userId: id });
+  await db.collection("parentLinks").deleteMany(phone ? { $or: [{ userId: id }, { phone }] } : { userId: id });
   await db.collection("users").deleteOne({ _id: id });
 }
 

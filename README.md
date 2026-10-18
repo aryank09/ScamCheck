@@ -144,7 +144,7 @@ cp .env.example .env
 npm start
 ```
 
-`npm start` listens on `PORT` (default 3000), starts the iMessage poll when Photon is configured, and starts the Gmail poll when MongoDB and Google OAuth are configured.
+`npm start` listens on `PORT` (default 3000), serves the website at `/`, starts the iMessage poll when Photon is configured, and starts the Gmail poll when MongoDB and Google OAuth are configured.
 
 ```bash
 npm test          # unit tests
@@ -156,7 +156,11 @@ npm run fixtures  # fixture set: caught, missed, false alarms
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/` and `/healthz` | Liveness |
+| GET | `/` | Website: create an account, add a parent, read metrics |
+| GET | `/healthz` | Liveness |
+| POST | `/signup`, `/login`, `/logout` | Account session |
+| GET | `/app` | Parents added to the signed-in account, with metrics after they have agreed |
+| POST | `/app/parents`, `/app/parents/remove` | Add or remove a parent number. Adding does not text them |
 | GET | `/connect/gmail?u=` | Consent page for Gmail connect |
 | GET | `/connect/gmail/start` | Redirect to Google OAuth |
 | GET | `/connect/gmail/callback` | Store the encrypted refresh token |

@@ -7,6 +7,7 @@ import type { AnalysisImage } from "./images.js";
 import { recentSummaries } from "./memory.js";
 import { alertCopy, deliverVoice, notifyLevel } from "./notify.js";
 import { advanceOnboarding, currentPrompt } from "./onboarding.js";
+import { applyAddedParent } from "./parentProfile.js";
 import { analyze } from "./analyze.js";
 import type { ParsedMessage } from "./types.js";
 
@@ -49,6 +50,8 @@ export async function handleInboundText(message: InboundText): Promise<void> {
     seen.add(message.id);
     return;
   }
+
+  await applyAddedParent(user);
 
   const forwarded = Boolean(image) || looksForwarded(message.text);
   if (forwarded) await checkForward(user, normalized, message.text, image);
