@@ -2,7 +2,7 @@
 
 `npm run fixtures` scores every JSON file in `tests/fixtures` with the rule checks only. All names, phone numbers, domains, and message text are fake or sanitized.
 
-**Caught 23, missed 0, false alarms 0, total 38.**
+**Caught 23, missed 0, false alarms 0, total 39.**
 
 The first set landed with detection. [PR #8](https://github.com/Se9uencer/ScamCheck/pull/8) added lookalikes, a hidden link, a reply-to mismatch, injection that still flags, mixed language, a real FedEx email, and the USPS family pair. [PR #16](https://github.com/Se9uencer/ScamCheck/pull/16) added the screenshot forward, already-paid language, the late-night Chase pair, and injection on a real Apple domain.
 
@@ -51,6 +51,7 @@ Passing DMARC, official From domain, no high finding.
 
 - `real-amazon`, `real-apple`, `real-bankofamerica`, `real-chase`, `real-fedex`, `real-irs`, `real-microsoft`, `real-netflix`, `real-paypal`, `real-usps`, `real-wellsfargo`
 - `real-mentions-paypal` — a friend on `gmail.com` mentions PayPal in the body. No brand mismatch.
+- `real-address-as-name` — a real Chase statement whose display name is the sender address itself (`alerts@chase.com`). The address must not be read as a claimed brand on another domain.
 
 ## Family same-scam pairs
 
