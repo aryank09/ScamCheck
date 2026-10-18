@@ -9,6 +9,8 @@ import { checkAuditToken, runCheck } from "./web/check.js";
 import { handleSite, isSitePath, siteErrorHtml } from "./web/site.js";
 import { checkToolSecret, voiceTools } from "./voice/tools.js";
 import { handlePostCall } from "./voice/postCall.js";
+import { radarSnapshot } from "./core/radar.js";
+import { radarPageHtml } from "./web/radar.js";
 
 loadEnv();
 
@@ -85,6 +87,17 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "GET" && url.pathname === "/healthz") {
     sendJson(response, 200, { service: "ScamCheck", ok: true });
+    return;
+  }
+
+  // Public Community Scam Radar: aggregates only, refreshes itself every 10 s.
+  if (request.method === "GET" && url.pathname === "/radar") {
+    try {
+      sendHtml(response, 200, radarPageHtml(await radarSnapshot()));
+    } catch (error) {
+      console.error("radar failed error=" + (error as Error).name);
+      sendHtml(response, 503, siteErrorHtml("The radar is not available right now."));
+    }
     return;
   }
 

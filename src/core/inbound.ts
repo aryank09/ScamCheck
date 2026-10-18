@@ -21,6 +21,8 @@ import { advanceOnboarding, currentPrompt } from "./onboarding.js";
 import { applyAddedParent } from "./parentProfile.js";
 import { analyze } from "./analyze.js";
 import { isAssistantRequest, preCheck, withRefusal } from "./guardrails.js";
+import { communityLead } from "./radar.js";
+import { waveFields } from "./waveKey.js";
 import type { ParsedMessage } from "./types.js";
 
 const seen = new Set<string>();
@@ -189,7 +191,10 @@ async function checkForward(
   );
   if (image) image.data.fill(0);
   const level = notifyLevel(result);
-  const copy = alertCopy(result, level === "none");
+  const wave = waveFields(parsed, result.claimed_brand);
+  const lead = level === "none" ? "" : await communityLead(wave, { userId: user._id, familyGroupId: user.familyGroupId }, user.language);
+  const alert = alertCopy(result, level === "none");
+  const copy = lead ? `${lead}\n\n${alert}` : alert;
   await reply(phone, isAssistantRequest(text) ? withRefusal(copy, level === "none") : copy, message, progress);
   if (level !== "none" && message.platform === "imessage") await deliverVoice(phone, result.spoken_summary);
   const caseId = await createCase({
@@ -199,14 +204,17 @@ async function checkForward(
     verdict: result.verdict,
     riskScore: result.risk_score,
     scamType: result.scam_type,
-    claimedBrand: result.claimed_brand ?? undefined,
+    claimedBrand: wave.brand,
+    senderDomain: wave.senderDomain,
+    category: wave.category,
+    language: user.language,
     summary: result.case_summary,
     notifiedVia: ["text"],
     familyAlerted: false,
     latencyMs: 0,
   });
   if (level === "call") {
-    await deliverWarningCall(user, String(caseId), result);
+    await deliverWarningCall(user, String(caseId), result, false, lead);
     if (user.familyContacts.length > 0) await alertFamily(user, { scamType: result.scam_type, caseId: String(caseId) });
   }
 }

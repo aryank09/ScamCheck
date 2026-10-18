@@ -120,6 +120,7 @@ async function home(account: Account | null): Promise<SiteResult> {
           <article><b>2</b><h2>Add a parent</h2><p>Enter their name, mobile number, and Gmail address, then send them their Gmail link.</p></article>
           <article><b>3</b><h2>Read the metrics</h2><p>Emails checked, warnings, and calls appear once they connect Gmail.</p></article>
         </div>
+        <p class="fine"><a href="/radar">See the Community Scam Radar →</a> Scams going around ScamCheck families this week.</p>
         <p class="fine">Automated check. It can be wrong. Verify with the company directly.</p>
       </main>`,
     ),
@@ -413,7 +414,11 @@ function secureCookie(): boolean {
   return (process.env.PUBLIC_BASE_URL ?? "").startsWith("https://");
 }
 
-function page(title: string, body: string, script = ""): string {
+/**
+ * Shared site template. `script` is inline JS allowed by its CSP hash (dashboard refresh);
+ * `head` adds extra tags (e.g. the radar page's meta refresh).
+ */
+export function page(title: string, body: string, script = "", head = ""): string {
   const scriptSrc = script ? `; script-src 'sha256-${createHash("sha256").update(script).digest("base64")}'` : "";
   return `<!doctype html>
 <html lang="en">
@@ -423,6 +428,7 @@ function page(title: string, body: string, script = ""): string {
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'${scriptSrc}">
   <title>${escapeHtml(title)}</title>
+  ${head}
   <style>
     :root { color-scheme: light; --bg: #f3efe6; --ink: #1c1714; --muted: #6d645c; --card: #fffdf8; --line: #e4dcd0; --scam: #9f1239; --warn: #92400e; --quiet: #3f6212; }
     * { box-sizing: border-box; }
@@ -485,7 +491,7 @@ ${script ? `<script>${script}</script>` : ""}
 </html>`;
 }
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
