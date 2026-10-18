@@ -1,23 +1,34 @@
 import { listRecentCases, updateCase } from "../db/cases.js";
-import { deleteUser, saveUser, type User } from "../db/users.js";
+import { deleteUser, ensureFamilyToken, saveUser, type User } from "../db/users.js";
 import { decryptToken } from "../email/tokens.js";
 import { revokeGmail } from "../email/oauth.js";
 import { alertFamily } from "./familyRelay.js";
 import { startWarningCall } from "../voice/outbound.js";
-import { parseFamily } from "./onboarding.js";
-import { languageCode } from "./onboarding.js";
+import { familyPageLink, languageCode, parseFamily } from "./onboarding.js";
 
 const URGENT =
   "Call your bank right away using the number on your card. Do not use a number from the message. I will let your family contact know.";
 
 export async function handleCommand(user: User, text: string): Promise<string | null> {
-  const match = text.trim().match(/^(language|family|help|stop|paid|clicked)\b[:\s]*(.*)$/i);
+  const match = text.trim().match(/^(language|family|help|stop|paid|clicked|dashboard|remove)\b[:\s]*(.*)$/i);
   if (!match?.[1]) return null;
   const command = match[1].toLowerCase();
   const rest = (match[2] ?? "").trim();
 
   if (command === "help") {
-    return "Forward a message and I will check it. Commands: LANGUAGE, FAMILY, HELP, STOP, PAID, CLICKED. Or just call me.";
+    return "Forward a message and I will check it. Commands: LANGUAGE, FAMILY, REMOVE, HELP, STOP, PAID, CLICKED, DASHBOARD. Or just call me.";
+  }
+  if (command === "dashboard") {
+    return dashboardReply(user);
+  }
+  if (command === "remove") {
+    // REMOVE 4567: drop the helper whose number ends in those digits.
+    const digits = rest.replace(/\D/g, "");
+    if (digits.length < 4) return "Send REMOVE and the last 4 digits of their number.";
+    const keep = user.familyContacts.filter((item) => !item.phone.replace(/\D/g, "").endsWith(digits));
+    if (keep.length === user.familyContacts.length) return "I couldn't find a helper with that number.";
+    await saveUser(user._id, { familyContacts: keep });
+    return "Removed. They won't get your alerts anymore.";
   }
   if (command === "language") {
     const language = languageCode(rest, true) ?? "en";
@@ -59,6 +70,16 @@ export async function handleCommand(user: User, text: string): Promise<string | 
     return URGENT;
   }
   return null;
+}
+
+export async function dashboardReply(user: User): Promise<string> {
+  const token = await ensureFamilyToken(user);
+  const link = familyPageLink(token);
+  if (!link) return "The family page is not ready yet.";
+  return (
+    `Family page: ${link}\n` +
+    "It shows warning summaries, not the original messages. Anyone with this link can add helpers."
+  );
 }
 
 async function revokeStoredGmail(user: User): Promise<void> {

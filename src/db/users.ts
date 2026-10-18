@@ -1,5 +1,13 @@
+import { randomBytes } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { getDb } from "./mongo.js";
+
+// Link tokens are the only lock on the Gmail-connect and family pages, so they must be
+// unguessable. ObjectIds are not: same-process ids differ only in a counter.
+const TOKEN_RE = /^[a-f0-9]{32}$/;
+export function newToken(): string {
+  return randomBytes(16).toString("hex");
+}
 
 export interface FamilyContact {
   name: string;
@@ -28,6 +36,10 @@ export interface User {
   gmail?: GmailLink;
   seenEmailIds: string[];
   connectToken?: string;
+  /** Private link for the family page. Separate from the Gmail connect token. */
+  familyToken?: string;
+  /** Running total of Gmail messages processed, including ones the model skipped. */
+  emailsChecked: number;
 }
 
 export async function findUserByPhone(phone: string): Promise<User | null> {
@@ -35,14 +47,52 @@ export async function findUserByPhone(phone: string): Promise<User | null> {
   if (!normalized) return null;
   const db = await getDb();
   const doc = await db.collection("users").findOne({ phone: normalized });
-  return doc ? toUser(doc) : null;
+  return doc ? upgradeTokens(toUser(doc)) : null;
+}
+
+/** One-time swap of old ObjectId-style tokens for random ones. Runs when the user next texts in. */
+async function upgradeTokens(user: User): Promise<User> {
+  const patch: { connectToken?: string; familyToken?: string } = {};
+  if (user.connectToken && !TOKEN_RE.test(user.connectToken)) patch.connectToken = newToken();
+  if (user.familyToken && !TOKEN_RE.test(user.familyToken)) patch.familyToken = newToken();
+  if (!patch.connectToken && !patch.familyToken) return user;
+  await saveUser(user._id, patch);
+  return { ...user, ...patch };
 }
 
 export async function findUserByConnectToken(token: string): Promise<User | null> {
-  if (!token) return null;
+  if (!TOKEN_RE.test(token)) return null;
   const db = await getDb();
   const doc = await db.collection("users").findOne({ connectToken: token });
   return doc ? toUser(doc) : null;
+}
+
+export async function findUserByFamilyToken(token: string): Promise<User | null> {
+  if (!TOKEN_RE.test(token)) return null;
+  const db = await getDb();
+  const doc = await db.collection("users").findOne({ familyToken: token });
+  return doc ? toUser(doc) : null;
+}
+
+/** Create the family-page token once. Existing tokens are left alone. */
+export async function ensureFamilyToken(user: User): Promise<string> {
+  if (user.familyToken && TOKEN_RE.test(user.familyToken)) return user.familyToken;
+  const token = newToken();
+  await saveUser(user._id, { familyToken: token });
+  user.familyToken = token;
+  return token;
+}
+
+/**
+ * Count one processed Gmail message.
+ * If the counter was never stored, start from how many ids this user already had.
+ */
+export async function incrementEmailsChecked(id: ObjectId, alreadySeen: number): Promise<void> {
+  const seed = Number.isFinite(alreadySeen) && alreadySeen > 0 ? Math.floor(alreadySeen) : 0;
+  const db = await getDb();
+  await db.collection("users").updateOne({ _id: id }, [
+    { $set: { emailsChecked: { $add: [{ $ifNull: ["$emailsChecked", seed] }, 1] } } },
+  ]);
 }
 
 /** The user who listed this phone as a family contact, plus that contact. */
@@ -77,7 +127,9 @@ export async function createUser(phone: string): Promise<User> {
     familyContacts: [],
     onboardingStep: "language" as const,
     seenEmailIds: [],
-    connectToken: new ObjectId().toHexString(),
+    connectToken: newToken(),
+    familyToken: newToken(),
+    emailsChecked: 0,
     createdAt: new Date(),
   };
   const result = await db.collection("users").insertOne(doc);
@@ -98,6 +150,7 @@ export async function saveUser(
   if (patch.gmail !== undefined) set.gmail = patch.gmail;
   if (patch.seenEmailIds !== undefined) set.seenEmailIds = patch.seenEmailIds.slice(-500);
   if (patch.connectToken !== undefined) set.connectToken = patch.connectToken;
+  if (patch.familyToken !== undefined) set.familyToken = patch.familyToken;
   const update: Record<string, unknown> = {};
   if (Object.keys(set).length > 0) update.$set = set;
   if (patch.seenEmailId) update.$addToSet = { seenEmailIds: patch.seenEmailId };
@@ -139,6 +192,11 @@ function toUser(doc: Record<string, unknown> & { _id: ObjectId }): User {
     gmail,
     seenEmailIds: stringList(doc.seenEmailIds),
     connectToken: typeof doc.connectToken === "string" ? doc.connectToken : undefined,
+    familyToken: typeof doc.familyToken === "string" ? doc.familyToken : undefined,
+    emailsChecked:
+      typeof doc.emailsChecked === "number" && doc.emailsChecked >= 0
+        ? doc.emailsChecked
+        : stringList(doc.seenEmailIds).length,
   };
 }
 

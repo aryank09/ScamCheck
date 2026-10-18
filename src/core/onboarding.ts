@@ -49,6 +49,12 @@ export function consentText(language: string): string {
   return `I don't have that language saved, so this is in English.\n\n${CONSENT.en}`;
 }
 
+export function familyPageLink(token: string): string | null {
+  const base = (process.env.PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
+  if (!base || !token) return null;
+  return `${base}/family?t=${token}`;
+}
+
 export function connectLink(user: User): string {
   const base = (process.env.PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
   if (!base || !user.connectToken) return "The Gmail connect link is not ready yet.";

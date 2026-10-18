@@ -105,6 +105,18 @@ export async function listRecentCases(query: {
     .toArray();
 }
 
+/** This user's cases only, newest first. Does not pull the rest of the family group. */
+export async function listCasesForUser(userId: ObjectId, days: number): Promise<CaseRecord[]> {
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const db = await getDb();
+  return db
+    .collection<CaseRecord>("cases")
+    .find({ userId, createdAt: { $gte: since } })
+    .sort({ createdAt: -1 })
+    .limit(200)
+    .toArray();
+}
+
 /** Drop links and long numbers so a stored sentence cannot hold message content. */
 function storedSummary(summary: string): string {
   const cleaned = summary

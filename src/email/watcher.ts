@@ -7,7 +7,7 @@ import { displayNameFromHeader } from "./headers.js";
 import { parseHtml } from "./parse.js";
 import { decryptToken } from "./tokens.js";
 import { oauthClient } from "./oauth.js";
-import { listGmailUsers, saveUser, type User } from "../db/users.js";
+import { incrementEmailsChecked, listGmailUsers, saveUser, type User } from "../db/users.js";
 import type { MessageLink, ParsedMessage } from "../core/types.js";
 
 const URGENCY = /urgent|immediately|gift\s*card|wire|password|verify your account|small fee|suspended/i;
@@ -73,7 +73,9 @@ async function pollUser(user: User): Promise<void> {
         });
         await notifyEmail(user, result);
       }
+      const alreadySeen = user.seenEmailIds.length;
       await saveUser(user._id, { seenEmailId: id, gmail: { ...user.gmail, lastCheckedAt: new Date() } });
+      await incrementEmailsChecked(user._id, alreadySeen);
       user.seenEmailIds.push(id);
     } catch (error) {
       console.error("gmail message failed error=" + (error as Error).name);
