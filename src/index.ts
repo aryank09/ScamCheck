@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { loadEnv } from "./config.js";
 import { startInbox } from "./channels/inbox.js";
-import { authRedirect, connectPage, finishConnect } from "./email/oauth.js";
+import { authRedirect, connectErrorHtml, connectPage, finishConnect } from "./email/oauth.js";
 import { startEmailWatcher } from "./email/watcher.js";
 import { placeDeferredCalls } from "./core/notify.js";
 import { addHelper, familyErrorHtml, getFamilyApi, renderFamilyPage, replyOnFamilyPage } from "./web/family.js";
@@ -61,6 +61,20 @@ async function serveFamily(
   }
 }
 
+// Connect pages carry the link token, so they get no-store and no-referrer like the site.
+async function serveConnect(
+  response: ServerResponse,
+  load: () => Promise<{ status: number; html: string }>,
+): Promise<void> {
+  try {
+    const result = await load();
+    sendHtml(response, result.status, result.html);
+  } catch (error) {
+    console.error("gmail connect failed error=" + (error as Error).name);
+    sendHtml(response, 500, connectErrorHtml());
+  }
+}
+
 function header(request: IncomingMessage, name: string): string | undefined {
   const value = request.headers[name.toLowerCase()];
   return Array.isArray(value) ? value[0] : value;
@@ -103,27 +117,30 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === "GET" && url.pathname === "/connect/gmail") {
-    const result = await connectPage(url.searchParams.get("u") ?? "");
-    response.writeHead(result.status, { "content-type": "text/html; charset=utf-8" });
-    response.end(result.html);
+    await serveConnect(response, () => connectPage(url.searchParams.get("u") ?? "", url.searchParams.get("p") ?? ""));
     return;
   }
 
   if (request.method === "GET" && url.pathname === "/connect/gmail/start") {
-    const target = authRedirect(url.searchParams.get("u") ?? "");
-    if (!target) {
-      sendJson(response, 503, { error: "Gmail connect is not configured" });
-      return;
+    try {
+      const target = await authRedirect(url.searchParams.get("u") ?? "", url.searchParams.get("p") ?? "");
+      if ("location" in target) {
+        response.writeHead(302, { location: target.location, "cache-control": "no-store", "referrer-policy": "no-referrer" });
+        response.end();
+      } else {
+        sendHtml(response, target.status, target.html);
+      }
+    } catch (error) {
+      console.error("gmail connect failed error=" + (error as Error).name);
+      sendHtml(response, 500, connectErrorHtml());
     }
-    response.writeHead(302, { location: target });
-    response.end();
     return;
   }
 
   if (request.method === "GET" && url.pathname === "/connect/gmail/callback") {
-    const result = await finishConnect(url.searchParams.get("code") ?? "", url.searchParams.get("state") ?? "");
-    response.writeHead(result.status, { "content-type": "text/html; charset=utf-8" });
-    response.end(result.html);
+    await serveConnect(response, () =>
+      finishConnect(url.searchParams.get("code") ?? "", url.searchParams.get("state") ?? ""),
+    );
     return;
   }
 
