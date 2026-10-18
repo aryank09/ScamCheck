@@ -14,6 +14,7 @@ export interface ParentInput {
   phone: string;
   language: string;
   relation?: string;
+  email?: string;
 }
 
 export function parseSignup(fields: Record<string, string>): { ok: true; value: SignupInput } | { ok: false; error: string } {
@@ -31,47 +32,14 @@ export function parseParent(fields: Record<string, string>): { ok: true; value: 
   const phone = normalizePhone(fields.phone ?? "");
   const language = (fields.language ?? "en").trim().toLowerCase();
   const relation = clean(fields.relation, 40);
+  const email = (fields.email ?? "").trim().toLowerCase();
   if (!name) return { ok: false, error: "Enter their name." };
   if (phone.includes("@") || phone.replace(/\D/g, "").length < 8) {
     return { ok: false, error: "Enter a real mobile number." };
   }
+  if (email && (!EMAIL_RE.test(email) || email.length > 200)) return { ok: false, error: "Enter their Gmail address." };
   if (!LANGUAGES.has(language)) return { ok: false, error: "Choose English, Spanish, Urdu, or Hindi." };
-  return { ok: true, value: { name, phone, language, relation: relation || undefined } };
-}
-
-const TEXT_FAILURES: Record<string, string> = {
-  recipient_invalid: "That number does not look like a mobile number.",
-  recipient_unreachable: "The carrier could not reach that number.",
-  recipient_opted_out: "That number has opted out of texts.",
-  message_blocked: "The message was blocked.",
-  message_blocked_by_carrier: "The carrier blocked the message.",
-  message_rate_limited: "The carrier asked us to slow down.",
-  message_rejected: "The carrier rejected it.",
-  message_expired: "The carrier dropped it before delivery.",
-  message_delivery_failed: "The carrier did not deliver it.",
-  sender_registration_required: "SMS is not registered on this line yet.",
-  sender_not_authorized: "This line is not allowed to text that number.",
-  sender_unavailable: "The SMS line is unavailable.",
-  not_configured: "SMS is not set up.",
-  send_failed: "The text did not send.",
-};
-
-/** Plain status for the heads-up text. Reload the page to ask Photon again. */
-export function textStatusLabel(status?: string, failure?: string): string {
-  if (!status) return "SMS not sent";
-  if (status === "delivered") return "SMS delivered";
-  if (status === "accepted") return "SMS accepted by the carrier";
-  if (status === "dispatched") return "SMS sent, waiting on the carrier";
-  if (status === "failed") {
-    const detail = failure ? TEXT_FAILURES[failure] : undefined;
-    return detail ? `SMS failed. ${detail}` : "SMS failed.";
-  }
-  return `SMS status: ${status}`;
-}
-
-/** Carrier state can still change. Delivered and failed are final. */
-export function inviteStillOpen(status?: string): boolean {
-  return status === "dispatched" || status === "accepted";
+  return { ok: true, value: { name, phone, language, relation: relation || undefined, ...(email ? { email } : {}) } };
 }
 
 /** Case summaries stay hidden until this person has agreed with ScamCheck. */
