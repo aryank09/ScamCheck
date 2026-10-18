@@ -1,3 +1,4 @@
+import { listRecentCases, updateCase } from "../db/cases.js";
 import { deleteUser, saveUser, type User } from "../db/users.js";
 import { decryptToken } from "../email/tokens.js";
 import { revokeGmail } from "../email/oauth.js";
@@ -40,13 +41,20 @@ export async function handleCommand(user: User, text: string): Promise<string | 
     return "Your ScamCheck data is deleted. Text me again if you want to start over.";
   }
   if (command === "paid" || command === "clicked") {
-    if (user.familyContacts.length > 0) await alertFamily(user, { scamType: command === "paid" ? "already paid" : "already clicked" });
+    // Attach to their newest flagged case so the record, family alert, and call all name the real scam.
+    const latest = (await listRecentCases({ userId: user._id, days: 7 })).find((c) => c.verdict !== "no_red_flags");
+    const caseId = latest ? String(latest._id) : undefined;
+    const what = command === "paid" ? "already paid" : "already clicked";
+    const scamType = latest ? `${latest.scamType} (${what})` : what;
+    if (caseId) await updateCase(caseId, { userAction: command });
+    if (user.familyContacts.length > 0) await alertFamily(user, { scamType, caseId });
     await startWarningCall({
       toPhone: user.phone,
-      caseId: "none",
+      caseId: caseId ?? "none",
       language: user.language,
       userName: user.displayName,
-      scamType: command === "paid" ? "already paid" : "already clicked",
+      brand: latest?.claimedBrand,
+      scamType,
     });
     return URGENT;
   }
