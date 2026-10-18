@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { ObjectId } from "mongodb";
 import type { CommunityCase } from "../src/db/cases.js";
-import { buildRadar, communityLine, countOtherFamilies } from "../src/core/radar.js";
+import { buildRadar, communityLine, countOtherFamilies, publicCases } from "../src/core/radar.js";
 import { normalizeBrand, scamCategory, scamDomain, waveFields } from "../src/core/waveKey.js";
 
 describe("wave key", () => {
@@ -68,6 +68,7 @@ describe("radar page", () => {
     senderDomain: domain,
     category: domain ? "account_locked" : "fee",
     language,
+    riskScore: 90,
     createdAt: at(hoursAgo),
   });
 
@@ -116,5 +117,18 @@ describe("radar page html", () => {
     assert.equal(html.includes("<script>x"), false);
     assert.match(html, /http-equiv="refresh" content="10"/);
     assert.match(html, /Community Scam Radar/);
+  });
+});
+
+describe("public radar filter", () => {
+  it("keeps scam-level cases with a category; drops suspicious-only and pre-radar cases", () => {
+    const base = { _id: new ObjectId(), userId: new ObjectId(), createdAt: new Date() };
+    const kept = publicCases([
+      { ...base, riskScore: 90, category: "account_locked" },
+      { ...base, riskScore: 55, category: "account_locked" },
+      { ...base, riskScore: 90 },
+    ]);
+    assert.equal(kept.length, 1);
+    assert.equal(kept[0]!.riskScore, 90);
   });
 });

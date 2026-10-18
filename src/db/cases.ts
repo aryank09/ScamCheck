@@ -158,7 +158,7 @@ export async function listCasesForUser(userId: ObjectId, days: number): Promise<
 /** Fields the Community Scam Radar needs. No summaries, no user ids beyond counting families. */
 export type CommunityCase = Pick<
   CaseRecord,
-  "_id" | "userId" | "familyGroupId" | "claimedBrand" | "senderDomain" | "category" | "language" | "createdAt"
+  "_id" | "userId" | "familyGroupId" | "claimedBrand" | "senderDomain" | "category" | "language" | "riskScore" | "createdAt"
 >;
 
 /**
@@ -182,7 +182,7 @@ export async function listCommunityCases(
   return db
     .collection<CaseRecord>("cases")
     .find(filter, {
-      projection: { userId: 1, familyGroupId: 1, claimedBrand: 1, senderDomain: 1, category: 1, language: 1, createdAt: 1 },
+      projection: { userId: 1, familyGroupId: 1, claimedBrand: 1, senderDomain: 1, category: 1, language: 1, riskScore: 1, createdAt: 1 },
     })
     .sort({ createdAt: -1 })
     .limit(2000)

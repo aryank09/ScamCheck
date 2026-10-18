@@ -115,8 +115,18 @@ export function buildRadar(cases: readonly CommunityCase[], now = new Date()): R
   };
 }
 
+/**
+ * The public page shows only scam-level cases (risk >= 75) that carry a radar category.
+ * Suspicious-only mail (40-74) is often a real service's notice, and listing it would
+ * reveal which services a family uses. Pre-radar cases have no category and stay off too.
+ * The call's community match still uses risk >= 40.
+ */
+export function publicCases<T extends Pick<CommunityCase, "riskScore" | "category">>(cases: readonly T[]): T[] {
+  return cases.filter((item) => item.riskScore >= 75 && Boolean(item.category));
+}
+
 export async function radarSnapshot(now = new Date()): Promise<RadarSnapshot> {
-  return buildRadar(await listCommunityCases(new Date(now.getTime() - WINDOW_MS)), now);
+  return buildRadar(publicCases(await listCommunityCases(new Date(now.getTime() - WINDOW_MS))), now);
 }
 
 // Spoken first on the warning call, in the user's language. Code fills the number so it's always exact.
