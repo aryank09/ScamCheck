@@ -66,6 +66,7 @@ export async function notifyEmail(user: User, result: AnalysisResult): Promise<v
     userName: user.displayName,
     brand: result.claimed_brand ?? undefined,
     scamType: result.scam_type,
+    opening: scrubBannedWords(result.spoken_summary),
   });
   if (conversationId) await updateCase(id, { notifiedVia: "call" });
   if (user.familyContacts.length > 0) await alertFamily(user, { scamType: result.scam_type, caseId: id });

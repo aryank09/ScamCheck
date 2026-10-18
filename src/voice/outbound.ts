@@ -8,7 +8,12 @@ export interface WarningCall {
   userName?: string;
   brand?: string;
   scamType: string;
+  /** Spoken first, in the user's language, so they hear the warning right away. */
+  opening?: string;
 }
+
+// ponytail: must match the agent's language presets in ElevenLabs; others stay on the default.
+const AGENT_LANGUAGES = new Set(["en", "es", "hi", "ur"]);
 
 export async function startWarningCall(call: WarningCall): Promise<string | null> {
   try {
@@ -31,6 +36,13 @@ export async function startWarningCall(call: WarningCall): Promise<string | null
             user_name: call.userName ?? "unknown",
             brand: call.brand ?? "none",
             scam_type: call.scamType,
+          },
+          // Both overrides are enabled on the agent (Security → Overrides).
+          conversation_config_override: {
+            agent: {
+              ...(call.opening ? { first_message: call.opening } : {}),
+              ...(AGENT_LANGUAGES.has(call.language) ? { language: call.language } : {}),
+            },
           },
         },
       }),
