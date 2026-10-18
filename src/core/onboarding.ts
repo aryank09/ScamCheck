@@ -17,6 +17,26 @@ const LANGUAGE_CODES = new Set(["es", "ur", "hi", "en"]);
 const NOT_A_LANGUAGE =
   /^(hi|hello|hey|hola|yo|thanks|thank you|ok|okay|start|help|test|yes|no|si|sí|yep|yeah|nah|stop)\b/i;
 
+/** Shown in onboarding and HELP. The SMS number is the call line. */
+export const IMESSAGE_TEXT_LINE = "Text me on iMessage. The SMS number is for phone calls only.";
+
+/** A reply to a stray SMS still goes out on iMessage, and says so. */
+export function replyOnImessage(text: string, inbound: "imessage" | "sms"): string {
+  if (inbound !== "sms" || text.includes(IMESSAGE_TEXT_LINE)) return text;
+  return `${text}\n\n${IMESSAGE_TEXT_LINE}`;
+}
+
+function languagePrompt(): string {
+  return `What language should I use? For example: English, Spanish, Urdu, or Hindi. ${IMESSAGE_TEXT_LINE}`;
+}
+
+function readyTip(user: User): string {
+  return (
+    "Save me as an iMessage contact. To check a message, long-press it, tap Forward, and send it to me on iMessage. " +
+    `Or just call me. ${IMESSAGE_TEXT_LINE}\n\nConnect Gmail: ${connectLink(user)}`
+  );
+}
+
 /**
  * Language code from free text, or null if not recognized.
  * Bare codes only count with allowCodes (the LANGUAGE command): as a first message,
@@ -62,10 +82,10 @@ export function connectLink(user: User): string {
 }
 
 export function currentPrompt(user: User): string {
-  if (user.onboardingStep === "language") return "What language should I use? For example: English, Spanish, Urdu, or Hindi.";
+  if (user.onboardingStep === "language") return languagePrompt();
   if (user.onboardingStep === "consent") return consentText(user.language);
   if (user.onboardingStep === "family") return "Send their name and number, or reply SKIP.";
-  return `Save me as a contact. To check a message, forward it to me, or call me.\n\nConnect Gmail: ${connectLink(user)}`;
+  return readyTip(user);
 }
 
 /** Returns the next prompt. Null means this message is not an onboarding step. */
@@ -75,7 +95,7 @@ export async function advanceOnboarding(user: User, text: string): Promise<strin
 
   if (user.onboardingStep === "language") {
     const answer = languageAnswer(trimmed);
-    if (!answer) return "What language should I use? For example: English, Spanish, Urdu, or Hindi.";
+    if (!answer) return languagePrompt();
     await saveUser(user._id, { language: answer.code, onboardingStep: "consent" });
     user.language = answer.code;
     user.onboardingStep = "consent";
@@ -95,7 +115,7 @@ export async function advanceOnboarding(user: User, text: string): Promise<strin
   if (/^skip$/i.test(trimmed)) {
     await saveUser(user._id, { onboardingStep: "done" });
     user.onboardingStep = "done";
-    return `Save me as a contact. To check a message, long-press it, tap Forward, and send it to me. Or just call me.\n\nConnect Gmail: ${connectLink(user)}`;
+    return readyTip(user);
   }
 
   const parsed = parseFamily(trimmed);
@@ -109,7 +129,7 @@ export async function advanceOnboarding(user: User, text: string): Promise<strin
     onboardingStep: "done",
   });
   await joinFamilyGroups(user);
-  return `I'll tell ${parsed.name} if something looks risky.\n\nConnect Gmail: ${connectLink(user)}`;
+  return `I'll tell ${parsed.name} if something looks risky. ${IMESSAGE_TEXT_LINE}\n\nConnect Gmail: ${connectLink(user)}`;
 }
 
 export function parseFamily(text: string): { name: string; phone: string } | null {

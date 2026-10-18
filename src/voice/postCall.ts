@@ -1,4 +1,4 @@
-// ElevenLabs post-call webhook → short text follow-up via Photon.
+// ElevenLabs post-call webhook → short iMessage follow-up via Photon.
 // Route: POST /voice/post-call with the RAW body (HMAC needs the exact bytes).
 // Never stores transcripts (AGENTS.md §10, §14).
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -60,12 +60,12 @@ export async function handlePostCall(rawBody: Buffer | string, signature: string
     typeof followup === "string" && followup.trim()
       ? followup.trim()
       : scamType
-        ? `Following up on our call about the ${scamType}. Don't click, reply, or pay. Text me if you have questions.`
-        : "Thanks for calling ScamCheck. Text me anytime if something else looks off.";
+        ? `Following up on our call about the ${scamType}. Don't click, reply, or pay. Text me on iMessage if you have questions.`
+        : "Thanks for calling ScamCheck. Text me on iMessage if something else looks off.";
 
   try {
     // followup_text is LLM-written, so it gets the same banned-words pass as analyze.ts.
-    await sendText(user.phone, `${redactOutput(scrubBannedWords(text))}\n\n${FOOTER}`, user.messagePlatform);
+    await sendText(user.phone, `${redactOutput(scrubBannedWords(text))}\n\n${FOOTER}`);
   } catch (err) {
     console.error(`post-call follow-up failed conv=${event.data.conversation_id} error=${(err as Error).name}`);
   }

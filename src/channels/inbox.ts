@@ -3,7 +3,7 @@ import { handleInboundText } from "../core/inbound.js";
 
 let started = false;
 
-/** Poll Photon for received iMessages and SMS. Beta docs use listMessages, not an invented webhook body. */
+/** Poll iMessage, and passively poll SMS so a stray text is not dropped. Replies go out on iMessage. */
 export function startInbox(): void {
   if (started || !process.env.PHOTON_API_KEY || !process.env.PHOTON_PROJECT_ID) return;
   started = true;
@@ -13,7 +13,7 @@ export function startInbox(): void {
     if (ticking) return;
     ticking = true;
     try {
-      // Each channel on its own: an SMS error (not enabled, carrier, API) must not stop iMessage.
+      // Each channel on its own: an SMS receive error must not stop iMessage. SMS is not used to send text.
       const platforms = ["imessage", "sms"] as const satisfies readonly MessagePlatform[];
       const results = await Promise.allSettled(platforms.map((platform) => listInboundTexts(since, platform)));
       results.forEach((result, i) => {

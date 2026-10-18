@@ -302,7 +302,7 @@ Rules:
   - `get_user_context(phone)` → name, language, recent cases (own + family), any pending flagged email.
   - `record_case({ phone, verdict, risk_score, scam_type, summary })`
   - `alert_family({ phone, scam_type })`
-- `voice/postCall.ts`: post-call webhook → send a short iMessage/SMS follow-up in the user's language summarizing the call and referencing any linked case. Do not store transcripts; extract only the case summary.
+- `voice/postCall.ts`: post-call webhook → send a short iMessage follow-up in the user's language summarizing the call and referencing any linked case. Do not store transcripts; extract only the case summary. The SMS number is for calls only.
 
 **Agent system prompt** (`voice/agentPrompt.md`):
 ```

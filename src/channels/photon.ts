@@ -5,6 +5,8 @@ import { imageMime, type AnalysisImage } from "../core/images.js";
 
 const TIMEOUT_MS = 10_000;
 export type MessagePlatform = "imessage" | "sms";
+/** Every user-facing text uses iMessage. The SMS number is for voice calls only. */
+export const TEXT_PLATFORM = "imessage" as const;
 
 let client: Photon | undefined;
 
@@ -24,20 +26,20 @@ function projectId(): string {
   return id;
 }
 
-async function agentUserId(api: Photon, project: string, platform: MessagePlatform): Promise<string> {
-  const configured = platform === "sms" ? process.env.PHOTON_SMS_AGENT_USER_ID : process.env.PHOTON_AGENT_USER_ID;
+async function agentUserId(api: Photon, project: string): Promise<string> {
+  const configured = process.env.PHOTON_AGENT_USER_ID;
   if (configured) return configured;
   let pageToken: string | undefined;
   do {
     const page = await api.projects.listUsers({
       path: { id: project },
-      query: { platform, pageSize: 100, ...(pageToken ? { pageToken } : {}) },
+      query: { platform: TEXT_PLATFORM, pageSize: 100, ...(pageToken ? { pageToken } : {}) },
     });
-    const agent = page.items.find((user) => user.platform === platform && user.kind === "agent");
+    const agent = page.items.find((user) => user.platform === TEXT_PLATFORM && user.kind === "agent");
     if (agent) return asId(agent.id, "agent id");
     pageToken = page.nextPageToken;
   } while (pageToken);
-  throw new Error(`No ${platform} agent user on this Photon project`);
+  throw new Error("No imessage agent user on this Photon project");
 }
 
 export interface InboundText {
@@ -56,11 +58,12 @@ export interface OutboundText {
   failure?: string;
 }
 
-/** Send plain text on the selected Photon channel. Does not log phone numbers or message bodies. */
-export async function sendText(phone: string, text: string, platform: MessagePlatform = "imessage"): Promise<OutboundText> {
+/** Send plain text on iMessage. Does not log phone numbers or message bodies. */
+export async function sendText(phone: string, text: string): Promise<OutboundText> {
   const api = photon();
   const project = projectId();
-  const convo = await conversation(api, project, phone, platform);
+  const platform = TEXT_PLATFORM;
+  const convo = await conversation(api, project, phone);
   const sent = await api.projects.sendMessage({
     path: { id: project },
     headers: { "idempotency-key": `text:${randomUUID()}` },
@@ -119,7 +122,7 @@ export async function sendVoiceNote(phone: string, audio: Buffer): Promise<void>
     },
     body: new Blob([new Uint8Array(payload)]),
   });
-  const convo = await conversation(api, project, phone, "imessage");
+  const convo = await conversation(api, project, phone);
   await api.projects.sendMessage({
     path: { id: project },
     headers: { "idempotency-key": `voice:${randomUUID()}` },
@@ -150,7 +153,8 @@ export async function downloadInboundImage(attachmentId: string): Promise<Analys
 }
 
 /**
- * Inbound iMessage via the beta listMessages query.
+ * Inbound text via the beta listMessages query.
+ * iMessage is how people text the agent. SMS is listed too so a stray SMS is not dropped.
  * https://photon.codes/docs/beta/get-started/imessage
  */
 export async function listInboundTexts(createdSince: string, platform: MessagePlatform): Promise<InboundText[]> {
@@ -183,14 +187,14 @@ async function conversation(
   api: Photon,
   project: string,
   phone: string,
-  platform: MessagePlatform,
 ): Promise<{ spaceId: string; senderId: string }> {
+  const platform = TEXT_PLATFORM;
   const person = await api.projects.createOrGetUser({
     path: { id: project },
     body: { handle: phone, platform },
   });
   const personId = asId(person.id, "user id");
-  const agentId = await agentUserId(api, project, platform);
+  const agentId = await agentUserId(api, project);
   const space = await api.projects.createOrGetSpace({
     path: { id: project },
     headers: { "idempotency-key": `space:${agentId}:${personId}` },

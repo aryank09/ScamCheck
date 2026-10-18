@@ -29,6 +29,7 @@ export interface GmailLink {
 export interface User {
   _id: ObjectId;
   phone: string;
+  /** Stored with the user. Outbound text ignores this and always uses iMessage. */
   messagePlatform: MessagePlatform;
   displayName?: string;
   language: string;
