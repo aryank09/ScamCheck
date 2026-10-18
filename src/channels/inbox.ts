@@ -13,9 +13,17 @@ export function startInbox(): void {
     if (ticking) return;
     ticking = true;
     try {
-      const batch = (await Promise.all(
-        (["imessage", "sms"] as const).map((platform: MessagePlatform) => listInboundTexts(since, platform)),
-      )).flat().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      // Each channel on its own: an SMS error (not enabled, carrier, API) must not stop iMessage.
+      const platforms = ["imessage", "sms"] as const satisfies readonly MessagePlatform[];
+      const results = await Promise.allSettled(platforms.map((platform) => listInboundTexts(since, platform)));
+      results.forEach((result, i) => {
+        if (result.status === "rejected") {
+          console.error(platforms[i] + " poll failed error=" + (result.reason as Error).name);
+        }
+      });
+      const batch = results
+        .flatMap((result) => (result.status === "fulfilled" ? result.value : []))
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       for (const message of batch) {
         await handleInboundText(message);
         if (message.createdAt > since) since = message.createdAt;

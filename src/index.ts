@@ -1,15 +1,20 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { loadEnv } from "./config.js";
 import { startInbox } from "./channels/inbox.js";
 import { authRedirect, connectPage, finishConnect } from "./email/oauth.js";
 import { startEmailWatcher } from "./email/watcher.js";
 import { addHelper, familyErrorHtml, getFamilyApi, renderFamilyPage, replyOnFamilyPage } from "./web/family.js";
 import { checkAuditToken, runCheck } from "./web/check.js";
+import { handleSite, isSitePath, siteErrorHtml } from "./web/site.js";
 import { checkToolSecret, voiceTools } from "./voice/tools.js";
 import { handlePostCall } from "./voice/postCall.js";
+
+loadEnv();
 
 const MAX_BODY_BYTES = 64 * 1024;
 // Post-call payloads carry the whole transcript; a long call easily passes 64 KB.
 const MAX_POST_CALL_BYTES = 2 * 1024 * 1024;
+const MAX_CHECK_BYTES = 8 * 1024 * 1024;
 const port = Number(process.env.PORT ?? "3000");
 
 class PayloadTooLargeError extends Error {}
@@ -63,8 +68,36 @@ function header(request: IncomingMessage, name: string): string | undefined {
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", "http://localhost");
 
-  if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/healthz")) {
+  if (request.method === "GET" && url.pathname === "/healthz") {
     sendJson(response, 200, { service: "ScamCheck", ok: true });
+    return;
+  }
+
+  if (isSitePath(url.pathname)) {
+    try {
+      const body = request.method === "POST" ? await readRawBody(request) : undefined;
+      const result = await handleSite(request.method ?? "GET", url, header(request, "cookie"), body);
+      if (result.cookie) response.setHeader("set-cookie", result.cookie);
+      if (result.redirect) {
+        response.writeHead(result.status, {
+          location: result.redirect,
+          "cache-control": "no-store",
+          "referrer-policy": "no-referrer",
+        });
+        response.end();
+        return;
+      }
+      sendHtml(response, result.status, result.html ?? "");
+    } catch (error) {
+      if (error instanceof PayloadTooLargeError) {
+        sendHtml(response, 413, siteErrorHtml("That form is too large."));
+      } else if (error instanceof Error && error.message.includes("MONGODB_URI")) {
+        sendHtml(response, 503, siteErrorHtml("Set MONGODB_URI before creating accounts."));
+      } else {
+        console.error("site failed error=" + (error as Error).name);
+        sendHtml(response, 500, siteErrorHtml("That didn't work. Try again."));
+      }
+    }
     return;
   }
 
@@ -139,7 +172,8 @@ const server = createServer(async (request, response) => {
       return;
     }
     try {
-      const rawBody = await readRawBody(request);
+      // Audit probes can carry a base64 screenshot.
+      const rawBody = await readRawBody(request, MAX_CHECK_BYTES);
       const result = await runCheck(JSON.parse(rawBody.toString("utf8")));
       sendJson(response, result.status, result.body);
     } catch (error) {

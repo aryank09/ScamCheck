@@ -1,13 +1,23 @@
 import { downloadInboundImage, sendText, type InboundText } from "../channels/photon.js";
 import { createCase } from "../db/cases.js";
-import { createUser, findUserByFamilyPhone, findUserByPhone, normalizePhone, saveUser, type User } from "../db/users.js";
+import {
+  createUser,
+  findUserByFamilyPhone,
+  findUserByPhone,
+  normalizePhone,
+  saveUser,
+  setFamilyContactPlatform,
+  type User,
+} from "../db/users.js";
 import { dashboardReply, handleCommand } from "./commands.js";
 import { alertFamily, relayFamilyReply } from "./familyRelay.js";
 import type { AnalysisImage } from "./images.js";
 import { recentSummaries } from "./memory.js";
 import { alertCopy, deliverVoice, notifyLevel } from "./notify.js";
 import { advanceOnboarding, currentPrompt } from "./onboarding.js";
+import { applyAddedParent } from "./parentProfile.js";
 import { analyze } from "./analyze.js";
+import { isAssistantRequest, preCheck, withRefusal } from "./guardrails.js";
 import type { ParsedMessage } from "./types.js";
 
 const seen = new Set<string>();
@@ -24,11 +34,10 @@ export async function handleInboundText(message: InboundText): Promise<void> {
       seen.add(eventKey);
       return;
     }
-    const updatedContacts = family.user.familyContacts.map((contact) =>
-      contact.phone === normalized ? { ...contact, messagePlatform: message.platform } : contact,
-    );
-    await saveUser(family.user._id, { familyContacts: updatedContacts });
-    family.user.familyContacts = updatedContacts;
+    if (family.contact.messagePlatform !== message.platform) {
+      await setFamilyContactPlatform(family.user._id, normalized, message.platform);
+      family.contact.messagePlatform = message.platform;
+    }
     const reply = message.text.trim()
       ? await relayFamilyReply(family.user, family.contact, message.text)
       : "Send that as a text and I will pass it on.";
@@ -60,6 +69,8 @@ export async function handleInboundText(message: InboundText): Promise<void> {
     return;
   }
 
+  await applyAddedParent(user);
+
   const forwarded = Boolean(image) || looksForwarded(message.text);
   if (forwarded) await checkForward(user, normalized, message.text, message.platform, image);
 
@@ -86,6 +97,13 @@ async function checkForward(
   platform: InboundText["platform"],
   image?: AnalysisImage,
 ): Promise<void> {
+  // Crisis, or a parent pasting their own card/SSN: fixed reply, no model.
+  const guard = preCheck(text, /https?:\/\//i.test(text));
+  if (guard) {
+    if (image) image.data.fill(0);
+    await sendText(phone, guard.reply, platform);
+    return;
+  }
   await sendText(phone, "Checking…", platform);
   const message: ParsedMessage = {
     source: platform,
@@ -103,7 +121,8 @@ async function checkForward(
   );
   if (image) image.data.fill(0);
   const level = notifyLevel(result);
-  await sendText(phone, alertCopy(result, level === "none"), platform);
+  const copy = alertCopy(result, level === "none");
+  await sendText(phone, isAssistantRequest(text) ? withRefusal(copy, level === "none") : copy, platform);
   if (level !== "none" && platform === "imessage") await deliverVoice(phone, result.spoken_summary);
   const caseId = await createCase({
     userId: user._id,

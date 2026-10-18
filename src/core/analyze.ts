@@ -3,6 +3,7 @@ import { z } from "zod";
 import { loadConfig } from "../config.js";
 import { scrubBannedWords } from "./bannedWords.js";
 import { collectEvidence, rulesFloor } from "./evidence.js";
+import { redactForModel } from "./guardrails.js";
 import { buildAnalysisPrompt } from "./prompt.js";
 import type { AnalysisImage } from "./images.js";
 import type { AnalysisContext, AnalysisResult, Finding, ParsedMessage, Verdict } from "./types.js";
@@ -64,7 +65,14 @@ export async function analyze(
     return analysisWithoutModel(message);
   }
 
-  const prompt = buildAnalysisPrompt(message, findings, context, Boolean(image));
+  // Rules ran on the original; the model never sees card or Social Security numbers.
+  const forModel = {
+    ...message,
+    text: redactForModel(message.text),
+    ...(message.html ? { html: redactForModel(message.html) } : {}),
+    ...(message.subject ? { subject: redactForModel(message.subject) } : {}),
+  };
+  const prompt = buildAnalysisPrompt(forModel, findings, context, Boolean(image));
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {

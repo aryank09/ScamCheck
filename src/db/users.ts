@@ -98,6 +98,17 @@ export async function incrementEmailsChecked(id: ObjectId, alreadySeen: number):
   ]);
 }
 
+/**
+ * Remember which channel a family contact texts from. Updates that one field in place,
+ * so a helper added on the family page at the same moment is never overwritten.
+ */
+export async function setFamilyContactPlatform(id: ObjectId, phone: string, platform: MessagePlatform): Promise<void> {
+  const db = await getDb();
+  await db
+    .collection("users")
+    .updateOne({ _id: id, "familyContacts.phone": phone }, { $set: { "familyContacts.$.messagePlatform": platform } });
+}
+
 /** The user who listed this phone as a family contact, plus that contact. */
 export async function findUserByFamilyPhone(
   phone: string,
@@ -169,7 +180,10 @@ export async function saveUser(
 
 export async function deleteUser(id: ObjectId): Promise<void> {
   const db = await getDb();
+  const existing = await db.collection("users").findOne({ _id: id });
+  const phone = typeof existing?.phone === "string" ? existing.phone : "";
   await db.collection("cases").deleteMany({ userId: id });
+  await db.collection("parentLinks").deleteMany(phone ? { $or: [{ userId: id }, { phone }] } : { userId: id });
   await db.collection("users").deleteOne({ _id: id });
 }
 
