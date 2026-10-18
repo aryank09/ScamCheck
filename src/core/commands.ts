@@ -6,7 +6,7 @@ import { alertFamily } from "./familyRelay.js";
 import { startWarningCall } from "../voice/outbound.js";
 import { familyPageLink, languageCode, parseFamily } from "./onboarding.js";
 
-const COMMAND_RE = /^(language|family|help|stop|paid|clicked|dashboard|remove|allow)\b/i;
+const COMMAND_RE = /^(language|family|help|stop|paid|clicked|dashboard|remove)\b/i;
 
 /** A word the sender is saying to ScamCheck, not a reply to pass on to a parent. */
 export function isUserCommand(text: string): boolean {

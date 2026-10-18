@@ -102,13 +102,6 @@ async function dispatch(message: InboundText, progress: { sent: boolean }): Prom
   await applyAddedParent(user);
   await joinFamilyGroups(user);
 
-  if (/^allow\b/i.test(text) && !image) {
-    const answer = await handleCommand(user, text);
-    const prompt = user.onboardingStep !== "done" ? currentPrompt(user) : "";
-    await reply(normalized, prompt && answer ? `${answer}\n\n${prompt}` : (answer ?? ""), message, progress);
-    return;
-  }
-
   const command = user.onboardingStep === "done" ? await handleCommand(user, text) : await stopOnly(user, text);
   if (command) {
     await reply(normalized, command, message, progress);
