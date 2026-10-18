@@ -45,15 +45,29 @@ export interface AddParentInput {
   fields?: Record<string, string>;
 }
 
-// Strips a one-time notice from the address bar, copies the Gmail link, and reloads every
-// 15 s so new warnings show up. A reload would wipe a selection or an open menu, so it waits.
-export const LIVE_SCRIPT = `(function () {
+// The one inline script on every account page (it runs in <head>):
+// - strips a one-time notice from the address bar and copies the Gmail link
+// - shows a spinner on submit and blocks double submits
+// - reveals landing sections on scroll and counts numbers up on first view
+// - on dashboard pages (<main data-live>), refetches the page every 15 s and swaps in only
+//   the panels whose HTML changed, so new warnings appear without a reload or a replayed intro.
+//   It waits while someone is selecting, typing, or has a menu open.
+export const SITE_SCRIPT = `(function () {
+  var root = document.documentElement;
+  var still = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var each = function (list, fn) { Array.prototype.forEach.call(list, fn); };
+  var format = function (value) { return Math.round(value).toLocaleString("en-US"); };
+  var signatures = new WeakMap();
+  var loading = false;
+
   var url = new URL(location.href);
   if (url.searchParams.has("notice") || url.searchParams.has("error")) {
     url.searchParams.delete("notice");
     url.searchParams.delete("error");
     history.replaceState(null, "", url.pathname + url.search);
   }
+  if (!still && "IntersectionObserver" in window) root.classList.add("js-reveal");
+
   document.addEventListener("click", function (event) {
     var button = event.target.closest && event.target.closest("[data-copy]");
     if (!button) return;
@@ -63,7 +77,8 @@ export const LIVE_SCRIPT = `(function () {
     input.select();
     var done = function () {
       label.textContent = "Copied";
-      setTimeout(function () { label.textContent = "Copy link"; }, 2000);
+      button.classList.add("copied");
+      setTimeout(function () { label.textContent = "Copy link"; button.classList.remove("copied"); }, 2000);
     };
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(input.value).then(done, function () { document.execCommand("copy"); done(); });
@@ -72,13 +87,163 @@ export const LIVE_SCRIPT = `(function () {
       done();
     }
   });
-  setInterval(function () {
-    if (document.hidden || String(getSelection())) return;
+
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (form.hasAttribute("data-sending")) { event.preventDefault(); return; }
+    form.setAttribute("data-sending", "");
+    var button = event.submitter || form.querySelector("[type=submit]");
+    if (button && button.classList.contains("btn")) {
+      button.classList.add("is-busy");
+      button.setAttribute("aria-busy", "true");
+    }
+    setTimeout(release, 8000);
+  });
+  function release() {
+    each(document.querySelectorAll("form[data-sending]"), function (form) { form.removeAttribute("data-sending"); });
+    each(document.querySelectorAll(".is-busy"), function (button) {
+      button.classList.remove("is-busy");
+      button.removeAttribute("aria-busy");
+    });
+  }
+  addEventListener("pageshow", function (event) { if (event.persisted) release(); });
+
+  function countUp(el, from, to, delay) {
+    if (still || from === to) { el.textContent = format(to); return; }
+    var start = 0;
+    el.textContent = format(from);
+    requestAnimationFrame(function step(now) {
+      if (!start) start = now + delay;
+      var t = Math.min(1, Math.max(0, (now - start) / 900));
+      el.textContent = format(from + (to - from) * (1 - Math.pow(1 - t, 3)));
+      if (t < 1) requestAnimationFrame(step);
+    });
+  }
+  function bump(el) {
+    el.classList.remove("bump");
+    void el.offsetWidth;
+    el.classList.add("bump");
+  }
+  function intro() {
+    each(document.querySelectorAll("[data-count]"), function (el) {
+      countUp(el, 0, Number(el.getAttribute("data-count")), Number(el.getAttribute("data-delay") || 250));
+    });
+  }
+
+  function regions(doc) {
+    var main = doc.querySelector("main[data-live]");
+    if (!main) return null;
+    var parts = Array.prototype.filter.call(main.children, function (el) { return !el.classList.contains("notice"); });
+    return { main: main, parts: parts, edges: [doc.querySelector(".sidebar .nav"), doc.querySelector(".topbar-inner")] };
+  }
+  function remember() {
+    var current = regions(document);
+    if (!current) return;
+    each(current.edges.concat(current.parts), function (el) {
+      if (el && !signatures.has(el)) signatures.set(el, el.outerHTML);
+    });
+  }
+  function replace(el, next) {
+    if (!el || !next) return;
+    var html = next.outerHTML;
+    if (signatures.get(el) === html) return;
+    var copy = document.importNode(next, true);
+    signatures.set(copy, html);
+    el.replaceWith(copy);
+  }
+  function badges() {
+    var map = {};
+    each(document.querySelectorAll(".sidebar .nav-item[href]"), function (link) {
+      var badge = link.querySelector(".nav-count");
+      var value = badge ? parseInt(badge.textContent, 10) : 0;
+      if (value > 0) map[link.getAttribute("href")] = { el: badge, value: value };
+    });
+    return map;
+  }
+  function swap(doc) {
+    var current = regions(document);
+    var next = regions(doc);
+    if (!current || !next) return;
+    var keys = Array.prototype.map.call(document.querySelectorAll(".feed-item[data-key]"), function (el) { return el.getAttribute("data-key"); });
+    var counts = Array.prototype.map.call(current.main.querySelectorAll("[data-count]"), function (el) { return Number(el.getAttribute("data-count")); });
+    var oldBadges = badges();
+    var reshaped = current.main.getAttribute("data-state") !== next.main.getAttribute("data-state") || current.parts.length !== next.parts.length;
+    root.classList.add("settled");
+    replace(current.edges[0], next.edges[0]);
+    replace(current.edges[1], next.edges[1]);
+    if (reshaped) {
+      root.classList.remove("settled");
+      current.main.replaceWith(document.importNode(next.main, true));
+      remember();
+      intro();
+      return;
+    }
+    each(current.parts, function (el, index) { replace(el, next.parts[index]); });
+    remember();
+    each(document.querySelectorAll(".feed-item[data-key]"), function (el) {
+      if (keys.indexOf(el.getAttribute("data-key")) < 0) el.classList.add("fresh");
+    });
+    var now = document.querySelectorAll("main[data-live] [data-count]");
+    if (now.length === counts.length) {
+      each(now, function (el, index) {
+        var to = Number(el.getAttribute("data-count"));
+        if (counts[index] === to) return;
+        countUp(el, counts[index], to, 0);
+        bump(el);
+      });
+    }
+    var newBadges = badges();
+    Object.keys(newBadges).forEach(function (href) {
+      if (newBadges[href].value > (oldBadges[href] ? oldBadges[href].value : 0)) bump(newBadges[href].el);
+    });
+  }
+  function busy() {
+    if (document.hidden || String(getSelection())) return true;
     var active = document.activeElement;
-    if (active && active.matches("input, select, textarea, summary")) return;
-    if (document.querySelector("details[open]")) return;
-    location.reload();
-  }, 15000);
+    if (active && active.matches && active.matches("input, select, textarea, summary")) return true;
+    return !!document.querySelector("details[open], form[data-sending]");
+  }
+  function refresh() {
+    if (loading || busy()) return;
+    loading = true;
+    fetch(location.href, { credentials: "same-origin", cache: "no-store" })
+      .then(function (response) {
+        if (response.redirected) { location.reload(); return ""; }
+        return response.ok ? response.text() : "";
+      })
+      .then(function (html) {
+        if (html && !busy()) swap(new DOMParser().parseFromString(html, "text/html"));
+      })
+      .catch(function () {})
+      .then(function () { loading = false; });
+  }
+
+  function ready() {
+    var header = document.querySelector(".site-header");
+    if (header) {
+      var onScroll = function () { header.classList.toggle("scrolled", scrollY > 8); };
+      addEventListener("scroll", onScroll, { passive: true });
+      onScroll();
+    }
+    if (root.classList.contains("js-reveal")) {
+      var observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) return;
+          entry.target.classList.add("in");
+          observer.unobserve(entry.target);
+        });
+      }, { rootMargin: "0px 0px -8% 0px" });
+      each(document.querySelectorAll("[data-reveal]"), function (el) { observer.observe(el); });
+    }
+    remember();
+    intro();
+    if (document.querySelector("main[data-live]")) {
+      setInterval(refresh, 15000);
+      document.addEventListener("visibilitychange", function () { if (!document.hidden) refresh(); });
+    }
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", ready);
+  else ready();
 })();`;
 
 /* ---------- Public pages ---------- */
@@ -99,7 +264,7 @@ export function landingPage(signedIn: boolean): string {
     ["calendar", "warn", "One calm daily summary", "Instead of a ping per email: “I checked 23 emails today. 1 looked suspicious.”"],
   ];
   const body = `<div class="site">
-  <header class="site-nav">
+  <header class="site-header"><div class="site-nav">
     <a class="brand" href="/">${brandMark(34)}<span>ScamCheck</span></a>
     <nav class="site-links" aria-label="Site">
       <a href="#how">How it works</a>
@@ -107,7 +272,7 @@ export function landingPage(signedIn: boolean): string {
       <a href="/radar">Scam Radar</a>
       ${navActions}
     </nav>
-  </header>
+  </div></header>
   <section class="hero">
     <div>
       <span class="chip"><i></i>Scam protection for families</span>
@@ -119,46 +284,46 @@ export function landingPage(signedIn: boolean): string {
     ${heroMock()}
   </section>
   <section class="section" id="features">
-    <div class="section-head">
+    <div class="section-head" data-reveal>
       <p class="eyebrow">What it does</p>
       <h2>It lives where they already are.</h2>
       <p>iMessage, phone calls, and their email inbox. ScamCheck doesn't wait to be asked.</p>
     </div>
     <div class="features">${features
       .map(
-        ([name, tone, title, text]) =>
-          `<article class="feature"><span class="feature-icon ${tone}">${icon(name, 22)}</span><h3>${title}</h3><p>${text}</p></article>`,
+        ([name, tone, title, text], index) =>
+          `<article class="feature" data-reveal style="--i:${index % 3}"><span class="feature-icon ${tone}">${icon(name, 22)}</span><h3>${title}</h3><p>${text}</p></article>`,
       )
       .join("")}</div>
   </section>
   <section class="section" id="how">
-    <div class="section-head">
+    <div class="section-head" data-reveal>
       <p class="eyebrow">How it works</p>
       <h2>Set it up for them in two minutes.</h2>
       <p>You do the setup. They don't have to learn anything new.</p>
     </div>
     <div class="steps">
-      <article class="step"><span class="step-num">1</span><h3>Create an account</h3><p>Your login is for you, the person who wants to keep an eye out.</p></article>
-      <article class="step"><span class="step-num">2</span><h3>Add a parent</h3><p>Enter their name, mobile number, and Gmail address, then send them their Gmail link.</p></article>
-      <article class="step"><span class="step-num">3</span><h3>Watch the dashboard</h3><p>Emails checked, warnings, and calls show up with charts for every parent.</p></article>
+      <article class="step" data-reveal><span class="step-num">1</span><h3>Create an account</h3><p>Your login is for you, the person who wants to keep an eye out.</p></article>
+      <article class="step" data-reveal style="--i:1"><span class="step-num">2</span><h3>Add a parent</h3><p>Enter their name, mobile number, and Gmail address, then send them their Gmail link.</p></article>
+      <article class="step" data-reveal style="--i:2"><span class="step-num">3</span><h3>Watch the dashboard</h3><p>Emails checked, warnings, and calls show up with charts for every parent.</p></article>
     </div>
   </section>
   <section class="section" id="privacy">
-    <div class="privacy">
+    <div class="privacy" data-reveal>
       <div>
         <p class="eyebrow">Privacy first</p>
         <h2>Built to see as little as possible.</h2>
         <p>ScamCheck checks messages for scams and keeps a one-line summary of each case. You see warnings, never their emails.</p>
       </div>
       <div class="privacy-list">
-        <div class="privacy-item">${icon("lock", 20)}<div><b>Read-only Gmail</b><p>ScamCheck can read new email to look for scams. It can't send, delete, or change anything.</p></div></div>
-        <div class="privacy-item">${icon("shield", 20)}<div><b>No emails stored</b><p>Messages are checked in memory. Only a short summary of each case is kept.</p></div></div>
-        <div class="privacy-item">${icon("family", 20)}<div><b>The family decides</b><p>Rules and AI flag the risk. A person they trust helps decide what to do.</p></div></div>
-        <div class="privacy-item">${icon("trash", 20)}<div><b>Delete anytime</b><p>Replying STOP deletes their data and disconnects Gmail.</p></div></div>
+        <div class="privacy-item" data-reveal style="--i:1">${icon("lock", 20)}<div><b>Read-only Gmail</b><p>ScamCheck can read new email to look for scams. It can't send, delete, or change anything.</p></div></div>
+        <div class="privacy-item" data-reveal style="--i:2">${icon("shield", 20)}<div><b>No emails stored</b><p>Messages are checked in memory. Only a short summary of each case is kept.</p></div></div>
+        <div class="privacy-item" data-reveal style="--i:3">${icon("family", 20)}<div><b>The family decides</b><p>Rules and AI flag the risk. A person they trust helps decide what to do.</p></div></div>
+        <div class="privacy-item" data-reveal style="--i:4">${icon("trash", 20)}<div><b>Delete anytime</b><p>Replying STOP deletes their data and disconnects Gmail.</p></div></div>
       </div>
     </div>
   </section>
-  <section class="section">
+  <section class="section" data-reveal>
     <div class="cta-band">
       <h2>Start looking out for them tonight.</h2>
       <p>Adding a parent takes two minutes.</p>
@@ -170,22 +335,27 @@ export function landingPage(signedIn: boolean): string {
     <span><a href="/radar">Community Scam Radar</a> · ScamCheck</span>
   </footer>
 </div>`;
-  return page("ScamCheck · Scam protection for families", body);
+  return page("ScamCheck · Scam protection for families", body, SITE_SCRIPT);
 }
 
 function heroMock(): string {
   const wave = [6, 12, 9, 15, 7, 13, 16, 8, 11, 14, 6, 10, 15, 9, 12, 7, 13, 8]
-    .map((height) => `<i style="height:${height}px"></i>`)
+    .map((height, index) => `<i style="height:${height}px;--i:${index}"></i>`)
     .join("");
-  const week = [2, 3, 1, 4, 2, 5, 3].map((height, index) => `<i class="${index === 5 ? "hot" : ""}" style="height:${height * 8}px"></i>`).join("");
+  const week = [2, 3, 1, 4, 2, 5, 3]
+    .map((height, index) => `<i class="${index === 5 ? "hot" : ""}" style="height:${height * 8}px;--i:${index}"></i>`)
+    .join("");
   return `<div class="mock" aria-hidden="true">
-      <div class="float float-a"><small>Emails checked this week</small><b>23</b><div class="mini-bars">${week}</div><small style="margin-top:8px">1 scam caught · 0 false alarms</small></div>
+      <div class="float float-a"><small>Emails checked this week</small><b data-count="23" data-delay="1100">23</b><div class="mini-bars">${week}</div><small style="margin-top:8px">1 scam caught · 0 false alarms</small></div>
       <div class="mock-phone"><div class="mock-screen">
         <div class="mock-top">${brandMark(30)}<div><b>ScamCheck</b><small>iMessage</small></div></div>
         <div class="bubble in"><small>Forwarded</small>Chase: Your account is locked. Verify now at chase-secure-login.net</div>
-        <div class="bubble out"><b>🚨 This is a scam</b><ul><li>It says it's from Chase, but the link goes to a different website.</li><li>Real banks never ask you to verify by text.</li></ul>Don't tap the link. I let Omar know.</div>
+        <div class="slot">
+          <div class="typing"><i></i><i></i><i></i></div>
+          <div class="bubble out"><b>🚨 This is a scam</b><ul><li>It says it's from Chase, but the link goes to a different website.</li><li>Real banks never ask you to verify by text.</li></ul>Don't tap the link. I let Omar know.</div>
+        </div>
         <div class="bubble out voice"><span class="play">▶</span><span class="wave">${wave}</span><small>0:14 · اردو</small></div>
-        <div class="bubble out"><b>Message from Omar (son)</b>Don't pay anything. I'll call you tonight.</div>
+        <div class="bubble out family"><b>Message from Omar (son)</b>Don't pay anything. I'll call you tonight.</div>
       </div></div>
       <div class="float float-b"><small>${icon("phone", 14)}</small><b style="font-size:16px">Warning call placed</b><p>Called Rashid in Urdu about a fake USPS fee. Omar was alerted.</p></div>
     </div>`;
@@ -225,7 +395,7 @@ export function authPage(mode: "signup" | "login", error: string, fields: Record
     </div>
   </div>
 </div>`;
-  return page(signup ? "Create an account · ScamCheck" : "Log in · ScamCheck", body);
+  return page(signup ? "Create an account · ScamCheck" : "Log in · ScamCheck", body, SITE_SCRIPT);
 }
 
 /* ---------- Signed-in app ---------- */
@@ -237,6 +407,7 @@ export function overviewPage(input: OverviewInput): string {
     ? `${range}<a class="btn btn-primary btn-sm" href="/app/parents/new">${icon("userPlus", 16)}Add a parent</a>`
     : "";
   const body = `${banner(input.notice, input.error)}${parents.length === 0 ? welcomePanel() : overviewBody(input)}`;
+  const state = parents.length === 0 ? "welcome" : parents.some((parent) => parent.watching) ? "watching" : "waiting";
   return page(
     "Overview · ScamCheck",
     appShell({
@@ -247,8 +418,9 @@ export function overviewPage(input: OverviewInput): string {
       crumbs: `Welcome back, ${escapeHtml(firstName(account.name))}`,
       actions,
       body,
+      live: state,
     }),
-    LIVE_SCRIPT,
+    SITE_SCRIPT,
   );
 }
 
@@ -350,8 +522,8 @@ function welcomePanel(): string {
     </div>
     <div class="welcome-steps">
       <div><span class="num">1</span><div><b>Add their details</b><span>Name, mobile number, Gmail address, and language.</span></div></div>
-      <div><span class="num">2</span><div><b>Send them their Gmail link</b><span>They sign in with Google and allow read-only access.</span></div></div>
-      <div><span class="num">3</span><div><b>Watch the dashboard</b><span>Emails checked, warnings, and calls appear with charts.</span></div></div>
+      <div style="--i:1"><span class="num">2</span><div><b>Send them their Gmail link</b><span>They sign in with Google and allow read-only access.</span></div></div>
+      <div style="--i:2"><span class="num">3</span><div><b>Watch the dashboard</b><span>Emails checked, warnings, and calls appear with charts.</span></div></div>
     </div>
   </section>`;
 }
@@ -378,8 +550,9 @@ export function parentPage(input: ParentPageInput): string {
       lead: parentAvatar(parent, input.parents, "lg"),
       actions: `${statusBadge(parent)}${parent.watching ? rangeToggle(`/app/parents/${parent.id}`, days) : ""}`,
       body,
+      live: `${parent.watching ? "watching" : "waiting"}${parent.gmailConnected ? "" : "-setup"}`,
     }),
-    LIVE_SCRIPT,
+    SITE_SCRIPT,
   );
 }
 
@@ -438,7 +611,7 @@ function setupPanel(parent: ParentView): string {
 
 function waitingPanel(name: string): string {
   const ghost = [34, 58, 42, 72, 48, 64, 38]
-    .map((height) => `<div class="bar ghost"><span class="seg-ghost seg-top" style="height:${height}%"></span></div>`)
+    .map((height, index) => `<div class="bar ghost" style="--i:${index}"><span class="seg-ghost seg-top" style="height:${height}%"></span></div>`)
     .join("");
   return `<section class="panel">
     <div class="chart" style="--gap:12px">
@@ -537,6 +710,7 @@ export function addParentPage(input: AddParentInput): string {
       crumbs: `<a href="/app">Overview</a> / New parent`,
       body,
     }),
+    SITE_SCRIPT,
   );
 }
 
@@ -553,9 +727,12 @@ interface ShellOptions {
   lead?: string;
   actions?: string;
   body: string;
+  /** Turns on the live refresh. A different value after a refresh replays the page intro. */
+  live?: string;
 }
 
 function appShell(options: ShellOptions): string {
+  const live = options.live ? ` data-live data-state="${escapeHtml(options.live)}"` : "";
   return `<div class="app">
   ${sidebar(options)}
   <div class="content">
@@ -563,14 +740,15 @@ function appShell(options: ShellOptions): string {
       <div class="topbar-title">${options.lead ?? ""}<div>${options.crumbs ? `<p class="crumbs">${options.crumbs}</p>` : ""}<h1>${escapeHtml(options.title)}</h1></div></div>
       ${options.actions ? `<div class="topbar-actions">${options.actions}</div>` : ""}
     </div></header>
-    <main class="app-main">${options.body}</main>
+    <main class="app-main"${live}>${options.body}</main>
   </div>
 </div>`;
 }
 
 function sidebar({ account, parents, active }: ShellOptions): string {
+  const glow = `<span class="nav-glow" aria-hidden="true"></span>`;
   const link = (href: string, name: string, label: string, isActive: boolean) =>
-    `<a class="nav-item${isActive ? " active" : ""}" href="${href}"${isActive ? ` aria-current="page"` : ""}>${icon(name)}<span class="grow">${label}</span></a>`;
+    `<a class="nav-item${isActive ? " active" : ""}" href="${href}"${isActive ? ` aria-current="page"` : ""}>${isActive ? glow : ""}${icon(name)}<span class="grow">${label}</span></a>`;
   const people = parents.length
     ? parents
         .map((parent) => {
@@ -582,7 +760,7 @@ function sidebar({ account, parents, active }: ShellOptions): string {
                 ? ""
                 : `<span class="nav-count setup" title="Gmail not connected">Set up</span>`;
           const isActive = active === parent.id;
-          return `<a class="nav-item${isActive ? " active" : ""}" href="/app/parents/${escapeHtml(parent.id)}"${isActive ? ` aria-current="page"` : ""}>${parentAvatar(parent, parents, "sm")}<span class="grow">${escapeHtml(parent.name)}</span>${count}</a>`;
+          return `<a class="nav-item${isActive ? " active" : ""}" href="/app/parents/${escapeHtml(parent.id)}"${isActive ? ` aria-current="page"` : ""}>${isActive ? glow : ""}${parentAvatar(parent, parents, "sm")}<span class="grow">${escapeHtml(parent.name)}</span>${count}</a>`;
         })
         .join("")
     : `<p class="nav-empty">No parents yet</p>`;
@@ -620,7 +798,7 @@ function kpis(items: readonly Kpi[]): string {
     .map(
       (item) => `<div class="kpi">
         <div class="kpi-top"><span class="kpi-label">${escapeHtml(item.label)}</span><span class="kpi-icon ${item.tone}">${icon(item.icon, 18)}</span></div>
-        <span class="kpi-value">${item.value.toLocaleString("en-US")}</span>
+        <span class="kpi-value" data-count="${item.value}">${item.value.toLocaleString("en-US")}</span>
         <span class="kpi-foot">${escapeHtml(item.foot)}</span>
         ${item.spark && item.color ? sparkline(item.spark, item.color) : ""}
       </div>`,
@@ -676,12 +854,17 @@ function parentCard(parent: ParentView, parents: readonly ParentView[]): string 
   return `<a class="parent-card" href="/app/parents/${escapeHtml(parent.id)}">
     <div class="parent-card-head">${parentAvatar(parent, parents)}<div><b>${escapeHtml(parent.name)}</b><span>${escapeHtml(sub)}</span></div>${statusBadge(parent)}</div>
     <div class="mini-stats">
-      <div><small>Emails</small><b>${parent.emailsChecked.toLocaleString("en-US")}</b></div>
-      <div><small>Warnings</small><b>${warnings}</b></div>
-      <div><small>Calls</small><b>${parent.stats.calls}</b></div>
+      <div><small>Emails</small>${liveNumber(parent.emailsChecked)}</div>
+      <div><small>Warnings</small>${liveNumber(warnings)}</div>
+      <div><small>Calls</small>${liveNumber(parent.stats.calls)}</div>
     </div>
     <div class="parent-card-foot"><span>${foot}</span>${icon("arrow", 16)}</div>
   </a>`;
+}
+
+/** A number the page script can count up, and animate when a refresh changes it. */
+function liveNumber(value: number): string {
+  return `<b data-count="${value}">${value.toLocaleString("en-US")}</b>`;
 }
 
 function statusBadge(parent: ParentView): string {
@@ -696,7 +879,7 @@ function warningRow(item: WarningItem, now: Date, timeZone: string, parent?: { p
   const who = parent
     ? `<a class="tag" href="/app/parents/${escapeHtml(parent.parentId)}">${escapeHtml(parent.parentName)}</a>`
     : "";
-  return `<article class="feed-item">
+  return `<article class="feed-item" data-key="${item.createdAt.getTime()}-${escapeHtml(item.title)}">
     <span class="feed-icon ${item.verdict}">${icon(item.verdict === "scam" ? "alert" : "eye", 18)}</span>
     <div>
       <div class="feed-head"><span class="feed-title">${escapeHtml(item.title)}</span><span class="when">${escapeHtml(formatWhen(item.createdAt, now, timeZone))}</span></div>

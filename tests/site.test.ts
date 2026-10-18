@@ -7,7 +7,7 @@ import type { User } from "../src/db/users.js";
 import { barList, dailyBars, donut, niceMax } from "../src/web/charts.js";
 import { handleSite, isSitePath } from "../src/web/site.js";
 import { caseStats, parentView, parseRange, warningItems } from "../src/web/stats.js";
-import { addParentPage, landingPage, overviewPage, parentPage } from "../src/web/views.js";
+import { SITE_SCRIPT, addParentPage, authPage, landingPage, overviewPage, parentPage } from "../src/web/views.js";
 
 const ZONE = "America/Los_Angeles";
 // 11:30 PM Saturday in Seattle, already Sunday in UTC.
@@ -222,6 +222,42 @@ describe("dashboard pages", () => {
   it("keeps marketing copy free of banned words", () => {
     assert.doesNotMatch(landingPage(false), BANNED);
     assert.match(landingPage(true), /Open dashboard/);
+  });
+});
+
+describe("motion and live refresh", () => {
+  const cases = [sampleCase("2026-10-17T18:00:00Z", "scam", { scamType: "fake Chase login" })];
+  const agreed = parentView(sampleLink(), sampleUser({ consentAcceptedAt: NOW }), cases, { days: 7, now: NOW, timeZone: ZONE });
+
+  it("ships one inline script that parses, allowed to fetch only this site", () => {
+    assert.doesNotThrow(() => new Function(SITE_SCRIPT));
+    assert.doesNotMatch(SITE_SCRIPT, BANNED);
+    for (const html of [landingPage(false), authPage("login", "", {}), addParentPage({ account, parents: [], atLimit: false })]) {
+      assert.match(html, /script-src 'sha256-[A-Za-z0-9+/=]+'; connect-src 'self'/);
+    }
+  });
+
+  it("refreshes only dashboard pages, and labels their shape so a big change replays the intro", () => {
+    const overview = overviewPage({ account, parents: [agreed], totals: caseStats(cases, 7, NOW, ZONE), recent: [], days: 7, now: NOW, timeZone: ZONE });
+    assert.match(overview, /<main class="app-main" data-live data-state="watching">/);
+    const waiting = parentView(sampleLink(), null, [], { days: 7, now: NOW, timeZone: ZONE });
+    const setup = parentPage({ account, parents: [waiting], parent: waiting, days: 7, now: NOW, timeZone: ZONE });
+    assert.match(setup, /data-live data-state="waiting-setup"/);
+    assert.match(addParentPage({ account, parents: [agreed], atLimit: false }), /<main class="app-main">/);
+  });
+
+  it("marks numbers, warnings, and bars so the page can animate them", () => {
+    const html = parentPage({ account, parents: [agreed], parent: agreed, days: 7, now: NOW, timeZone: ZONE });
+    assert.match(html, /class="kpi-value" data-count="40">40</);
+    assert.match(html, /class="feed-item" data-key="\d+-Fake Chase login"/);
+    assert.match(html, /class="bar" style="--h:[\d.]+%;--i:6"/);
+    assert.match(html, /<span class="nav-glow" aria-hidden="true"><\/span>/);
+  });
+
+  it("turns animation off for people who ask for reduced motion", () => {
+    const html = landingPage(false);
+    assert.match(html, /@media \(prefers-reduced-motion: reduce\)/);
+    assert.match(html, /@media \(prefers-reduced-motion: no-preference\) \{\s*@view-transition/);
   });
 });
 

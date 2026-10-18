@@ -30,7 +30,7 @@ export function dailyBars(days: readonly DayCount[]): string {
   const totals = days.map((day) => day.scam + day.suspicious + day.quiet);
   const top = niceMax(Math.max(0, ...totals));
   const dense = days.length > 14;
-  const bars = days.map((day, index) => dayBar(day, totals[index] ?? 0, top)).join("");
+  const bars = days.map((day, index) => dayBar(day, totals[index] ?? 0, top, index)).join("");
   const labels = days
     .map((day, index) => {
       // Month view: label every fifth day, counted back from today so today is always labeled.
@@ -41,7 +41,7 @@ export function dailyBars(days: readonly DayCount[]): string {
   const empty = totals.every((total) => total === 0)
     ? `<div class="chart-empty"><div><b>No checks in this period</b>New checks show up here as they happen.</div></div>`
     : "";
-  return `<div class="chart" style="--gap:${dense ? 3 : 12}px">
+  return `<div class="chart" style="--gap:${dense ? 3 : 12}px;--stagger:${dense ? 18 : 45}ms">
     <div class="chart-bars">
       <div class="bars-y" aria-hidden="true"><span style="top:0">${top}</span><span style="top:50%">${top / 2}</span><span style="top:100%">0</span></div>
       <div class="bars-plot">${bars}${empty}</div>
@@ -50,7 +50,7 @@ export function dailyBars(days: readonly DayCount[]): string {
   </div>`;
 }
 
-function dayBar(day: DayCount, total: number, top: number): string {
+function dayBar(day: DayCount, total: number, top: number, index: number): string {
   const percent = (value: number) => (top > 0 ? (value / top) * 100 : 0).toFixed(2);
   const parts = (
     [
@@ -66,7 +66,7 @@ function dayBar(day: DayCount, total: number, top: number): string {
     )
     .join("");
   const said = `${day.full}: ${day.scam} scam, ${day.suspicious} suspicious, ${day.quiet} no red flags`;
-  return `<div class="bar" style="--h:${percent(total)}%" role="img" aria-label="${escapeHtml(said)}">${segments}<div class="tip"><b>${escapeHtml(day.full)}</b><div><i style="background:${COLORS.scam}"></i>${day.scam} scam</div><div><i style="background:${COLORS.suspicious}"></i>${day.suspicious} suspicious</div><div><i style="background:${COLORS.quiet}"></i>${day.quiet} no red flags</div></div></div>`;
+  return `<div class="bar" style="--h:${percent(total)}%;--i:${index}" role="img" aria-label="${escapeHtml(said)}">${segments}<div class="tip"><b>${escapeHtml(day.full)}</b><div><i style="background:${COLORS.scam}"></i>${day.scam} scam</div><div><i style="background:${COLORS.suspicious}"></i>${day.suspicious} suspicious</div><div><i style="background:${COLORS.quiet}"></i>${day.quiet} no red flags</div></div></div>`;
 }
 
 export function legend(segments: readonly Segment[]): string {
@@ -87,7 +87,9 @@ export function donut(segments: readonly Segment[], centerLabel: string): string
     .map((item) => {
       const length = (item.value / total) * circumference;
       const dash = Math.max(length - gap, 0.5);
-      const arc = `<circle class="arc" cx="88" cy="88" r="${radius}" fill="none" stroke-width="18" style="stroke:${escapeHtml(item.color)}" stroke-dasharray="${dash.toFixed(2)} ${(circumference - dash).toFixed(2)}" stroke-dashoffset="${(-offset).toFixed(2)}"><title>${escapeHtml(`${item.label}: ${item.value}`)}</title></circle>`;
+      // --start and --len (shares of the ring) let the CSS draw all arcs as one sweep.
+      const sweep = `--start:${(offset / circumference).toFixed(3)};--len:${(length / circumference).toFixed(3)}`;
+      const arc = `<circle class="arc" cx="88" cy="88" r="${radius}" fill="none" stroke-width="18" style="stroke:${escapeHtml(item.color)};${sweep}" stroke-dasharray="${dash.toFixed(2)} ${(circumference - dash).toFixed(2)}" stroke-dashoffset="${(-offset).toFixed(2)}"><title>${escapeHtml(`${item.label}: ${item.value}`)}</title></circle>`;
       offset += length;
       return arc;
     })
@@ -101,7 +103,7 @@ export function donut(segments: readonly Segment[], centerLabel: string): string
   return `<div class="donut-wrap">
     <div class="donut">
       <svg viewBox="0 0 176 176" width="176" height="176" aria-hidden="true"><circle cx="88" cy="88" r="${radius}" fill="none" stroke-width="18" style="stroke:var(--line-2)"/>${arcs}</svg>
-      <div class="donut-center"><b>${total}</b><span>${escapeHtml(centerLabel)}</span></div>
+      <div class="donut-center"><b data-count="${total}">${total.toLocaleString("en-US")}</b><span>${escapeHtml(centerLabel)}</span></div>
     </div>
     <div class="donut-legend">${rows}</div>
   </div>`;
@@ -112,11 +114,11 @@ export function barList(rows: readonly BarRow[], empty: string, max?: number): s
   if (rows.length === 0 || rows.every((row) => row.value === 0)) return `<p class="empty-note">${escapeHtml(empty)}</p>`;
   const top = max ?? Math.max(...rows.map((row) => row.value));
   return `<div class="barlist">${rows
-    .map((row) => {
+    .map((row, index) => {
       const width = top > 0 ? Math.min(100, Math.max(row.value > 0 ? 3 : 0, (row.value / top) * 100)) : 0;
       const label = row.href ? `<a href="${escapeHtml(row.href)}">${escapeHtml(row.label)}</a>` : escapeHtml(row.label);
       const color = row.color ? `;background:${escapeHtml(row.color)}` : "";
-      return `<div class="barlist-row"><div class="barlist-top"><span>${label}</span><b>${row.value}</b></div><div class="barlist-track"><div class="barlist-fill" style="width:${width.toFixed(1)}%${color}"></div></div></div>`;
+      return `<div class="barlist-row" style="--i:${index}"><div class="barlist-top"><span>${label}</span><b>${row.value}</b></div><div class="barlist-track"><div class="barlist-fill" style="width:${width.toFixed(1)}%${color}"></div></div></div>`;
     })
     .join("")}</div>`;
 }
