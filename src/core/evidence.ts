@@ -87,7 +87,7 @@ export function collectEvidence(message: ParsedMessage): Finding[] {
     }
   }
 
-  const claimed = claimedBrands(view);
+  const claimed = identityClaims(view);
   const fromHost = hostOf(view.from);
   for (const host of hostsToInspect(view, fromHost)) {
     for (const finding of lookalikeFindings(host)) add(finding);
@@ -140,8 +140,9 @@ function hostsToInspect(message: ParsedMessage, fromHost: string | null): string
   return [...hosts];
 }
 
-function claimedBrands(message: ParsedMessage): Brand[] {
-  const haystack = [message.displayName, message.subject, message.text].filter(Boolean).join("\n");
+/** Display name and subject only. A body mention is not a claim of identity. */
+function identityClaims(message: ParsedMessage): Brand[] {
+  const haystack = [message.displayName, message.subject].filter(Boolean).join("\n");
   return BRANDS.filter((brand) => brand.patterns.some((pattern) => pattern.test(haystack)));
 }
 
