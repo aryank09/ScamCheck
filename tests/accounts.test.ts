@@ -3,11 +3,13 @@ import { describe, it } from "node:test";
 import { checkPassword, hashPassword } from "../src/db/accounts.js";
 import {
   clearSessionCookie,
+  inviteStillOpen,
   parentIsWatching,
   parseParent,
   parseSignup,
   readCookie,
   sessionCookie,
+  textStatusLabel,
 } from "../src/web/accountForms.js";
 import { handleSite } from "../src/web/site.js";
 
@@ -28,6 +30,22 @@ describe("website accounts", () => {
     });
     assert.equal(parseParent({ name: "Rashid", phone: "123", language: "en" }).ok, false);
     assert.equal(parseParent({ name: "Rashid", phone: "2065550100", language: "fr" }).ok, false);
+  });
+
+  it("describes Photon SMS delivery without the phone number", () => {
+    assert.equal(textStatusLabel(undefined), "SMS not sent");
+    assert.equal(textStatusLabel("dispatched"), "SMS sent, waiting on the carrier");
+    assert.equal(textStatusLabel("accepted"), "SMS accepted by the carrier");
+    assert.equal(textStatusLabel("delivered"), "SMS delivered");
+    assert.equal(
+      textStatusLabel("failed", "recipient_invalid"),
+      "SMS failed. That number does not look like a mobile number.",
+    );
+    assert.equal(textStatusLabel("failed", "not_configured"), "SMS failed. SMS is not set up.");
+    assert.equal(textStatusLabel("failed"), "SMS failed.");
+    assert.equal(inviteStillOpen("accepted"), true);
+    assert.equal(inviteStillOpen("delivered"), false);
+    assert.equal(inviteStillOpen("failed"), false);
   });
 
   it("hides metrics until the parent has agreed", () => {

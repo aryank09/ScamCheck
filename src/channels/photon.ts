@@ -49,12 +49,19 @@ export interface InboundText {
   platform: MessagePlatform;
 }
 
+export interface OutboundText {
+  id: string;
+  status: string;
+  platform: MessagePlatform;
+  failure?: string;
+}
+
 /** Send plain text on the selected Photon channel. Does not log phone numbers or message bodies. */
-export async function sendText(phone: string, text: string, platform: MessagePlatform = "imessage"): Promise<void> {
+export async function sendText(phone: string, text: string, platform: MessagePlatform = "imessage"): Promise<OutboundText> {
   const api = photon();
   const project = projectId();
   const convo = await conversation(api, project, phone, platform);
-  await api.projects.sendMessage({
+  const sent = await api.projects.sendMessage({
     path: { id: project },
     headers: { "idempotency-key": `text:${randomUUID()}` },
     body: {
@@ -63,6 +70,26 @@ export async function sendText(phone: string, text: string, platform: MessagePla
       content: { type: "text", format: "plain", text },
     },
   });
+  const status = typeof sent.status === "string" ? sent.status : "dispatched";
+  const failure = failureCode(sent);
+  return { id: asId(sent.id, "message id"), status, platform, ...(failure ? { failure } : {}) };
+}
+
+/** Latest delivery state for one outbound message. Docs: get a message. */
+export async function messageStatus(messageId: string): Promise<{ status: string; failure?: string }> {
+  const message = await photon().projects.getMessage({
+    path: { id: projectId(), messageId },
+  });
+  if (!message || typeof message.status !== "string") return { status: "dispatched" };
+  const code = failureCode(message);
+  return code ? { status: message.status, failure: code } : { status: message.status };
+}
+
+function failureCode(message: object): string | undefined {
+  if (!("failure" in message)) return undefined;
+  const failure = message.failure;
+  if (!failure || typeof failure !== "object" || !("code" in failure)) return undefined;
+  return typeof failure.code === "string" ? failure.code : undefined;
 }
 
 /** Upload an mp3 and send it as a Photon voice message. Docs: send-a-message SendVoiceContent. */

@@ -8,20 +8,23 @@ import {
   listParentLinks,
   openSession,
   removeParentLink,
+  saveParentInvite,
   type Account,
   type ParentLink,
 } from "../db/accounts.js";
 import { checkPassword } from "../db/accounts.js";
 import { findUserByPhone } from "../db/users.js";
-import { sendText } from "../channels/photon.js";
+import { messageStatus, sendText } from "../channels/photon.js";
 import { familyView, type FamilySnapshot } from "./family.js";
 import {
   clearSessionCookie,
+  inviteStillOpen,
   parentIsWatching,
   parseParent,
   parseSignup,
   readCookie,
   sessionCookie,
+  textStatusLabel,
 } from "./accountForms.js";
 
 const MAX_PARENTS = 8;
@@ -35,8 +38,8 @@ const LANGUAGE_LABELS: Record<string, string> = {
 };
 
 const NOTICES: Record<string, string> = {
-  added: "Added. Summaries show here after they agree with ScamCheck.",
-  watching: "Added. We texted them; their summaries show here once they reply ALLOW.",
+  added: "Added. SMS status is on their card. Reload this page to check delivery.",
+  watching: "Added. We texted them. SMS status is on their card. Summaries show here once they reply ALLOW.",
   removed: "Removed from your account.",
 };
 
@@ -160,21 +163,34 @@ async function addParent(account: Account, fields: Record<string, string>): Prom
   const result = await addParentLink(account._id, { ...parsed.value, userId: user?._id });
   if (result === "duplicate") return { status: 303, redirect: "/app?error=duplicate" };
   const watching = parentIsWatching(user?.consentAcceptedAt);
-  // A phone number is not proof of family: the parent must say yes before this account sees anything.
-  if (user && watching) {
-    try {
-      await sendText(
-        user.phone,
-        `${account.name} asked to see your ScamCheck warning summaries on the ScamCheck website. ` +
-          "Reply ALLOW to share them. If you don't know them, ignore this.",
-        user.messagePlatform,
-      );
-    } catch (error) {
-      console.error("allow request failed error=" + (error as Error).name);
-    }
+  // SMS goes out so the account can see whether the number actually received a text.
+  // Summaries stay hidden until the parent replies ALLOW.
+  await saveParentInvite(account._id, parsed.value.phone, await requestAllow(account.name, parsed.value.phone));
+  return { status: 303, redirect: "/app?notice=" + (watching ? "watching" : "added") };
+}
+
+async function requestAllow(
+  name: string,
+  phone: string,
+): Promise<{ messageId?: string; status: string; failure?: string }> {
+  try {
+    const sent = await sendText(
+      phone,
+      `${name} asked to see your ScamCheck warning summaries on the ScamCheck website. ` +
+        "Reply ALLOW to share them. If you don't know them, ignore this.",
+      "sms",
+    );
+    return {
+      messageId: sent.id,
+      status: sent.status,
+      ...(sent.failure ? { failure: sent.failure } : {}),
+    };
+  } catch (error) {
+    console.error("allow request failed error=" + (error as Error).name);
+    const message = error instanceof Error ? error.message : "";
+    const failure = /is not set|No sms agent/.test(message) ? "not_configured" : "send_failed";
+    return { status: "failed", failure };
   }
-  const notice = watching ? "watching" : "added";
-  return { status: 303, redirect: "/app?notice=" + notice };
 }
 
 async function removeParent(account: Account, fields: Record<string, string>): Promise<SiteResult> {
@@ -191,9 +207,27 @@ interface ParentCard {
 }
 
 async function parentCard(link: ParentLink): Promise<ParentCard> {
-  const user = await findUserByPhone(link.phone);
-  if (!user || !parentIsWatching(user.consentAcceptedAt) || !link.approvedAt) return { link, watching: false };
-  return { link, watching: true, snapshot: familyView(user, await listCasesForUser(user._id, 7)) };
+  const current = await refreshInvite(link);
+  const user = await findUserByPhone(current.phone);
+  if (!user || !parentIsWatching(user.consentAcceptedAt) || !current.approvedAt) return { link: current, watching: false };
+  return { link: current, watching: true, snapshot: familyView(user, await listCasesForUser(user._id, 7)) };
+}
+
+async function refreshInvite(link: ParentLink): Promise<ParentLink> {
+  if (!link.inviteMessageId || !inviteStillOpen(link.inviteStatus)) return link;
+  try {
+    const latest = await messageStatus(link.inviteMessageId);
+    if (latest.status === link.inviteStatus && latest.failure === link.inviteFailure) return link;
+    await saveParentInvite(link.accountId, link.phone, {
+      messageId: link.inviteMessageId,
+      status: latest.status,
+      failure: latest.failure,
+    });
+    return { ...link, inviteStatus: latest.status, inviteFailure: latest.failure };
+  } catch (error) {
+    console.error("message status failed error=" + (error as Error).name);
+    return link;
+  }
 }
 
 function dashboardPage(account: Account, cards: ParentCard[], notice: string, error: string): string {
@@ -207,7 +241,7 @@ function dashboardPage(account: Account, cards: ParentCard[], notice: string, er
         </div>
         <form method="post" action="/logout"><button class="ghost" type="submit">Log out</button></form>
       </div>
-      <p class="lede">Add a parent by name and mobile number. Summaries appear after that person has agreed with ScamCheck.</p>
+      <p class="lede">Add a parent by name and mobile number. We send one SMS so you can see if it was delivered. Reload this page to check again. Summaries appear after they reply ALLOW.</p>
       ${banner(notice, error)}
       <section class="panel">
         <h2>Add a parent</h2>
@@ -242,12 +276,18 @@ function renderCard(card: ParentCard): string {
   const status = card.watching
     ? `<span class="pill watching">Watching</span>`
     : `<span class="pill waiting">Waiting for them</span>`;
-  const body = card.watching && card.snapshot ? metricsBlock(card.snapshot) : `<p class="lede">Summaries show here after they agree with ScamCheck and reply ALLOW to the text we send them.</p>`;
+  const sms = `<p class="meta">${escapeHtml(textStatusLabel(card.link.inviteStatus, card.link.inviteFailure))}</p>`;
+  const check = inviteStillOpen(card.link.inviteStatus) ? `<p class="fine"><a href="/app">Check SMS status</a></p>` : "";
+  const body = card.watching && card.snapshot
+    ? metricsBlock(card.snapshot)
+    : `<p class="lede">Summaries show here after they agree with ScamCheck and reply ALLOW.</p>`;
   return `<article class="card parent">
     <header>
       <div><h3>${escapeHtml(who)}</h3><p class="meta">···${escapeHtml(last4)} · ${escapeHtml(language)}</p></div>
       ${status}
     </header>
+    ${sms}
+    ${check}
     ${body}
     <form method="post" action="/app/parents/remove">
       <input type="hidden" name="name" value="${escapeHtml(card.link.parentName)}">

@@ -39,6 +39,41 @@ export function parseParent(fields: Record<string, string>): { ok: true; value: 
   return { ok: true, value: { name, phone, language, relation: relation || undefined } };
 }
 
+const TEXT_FAILURES: Record<string, string> = {
+  recipient_invalid: "That number does not look like a mobile number.",
+  recipient_unreachable: "The carrier could not reach that number.",
+  recipient_opted_out: "That number has opted out of texts.",
+  message_blocked: "The message was blocked.",
+  message_blocked_by_carrier: "The carrier blocked the message.",
+  message_rate_limited: "The carrier asked us to slow down.",
+  message_rejected: "The carrier rejected it.",
+  message_expired: "The carrier dropped it before delivery.",
+  message_delivery_failed: "The carrier did not deliver it.",
+  sender_registration_required: "SMS is not registered on this line yet.",
+  sender_not_authorized: "This line is not allowed to text that number.",
+  sender_unavailable: "The SMS line is unavailable.",
+  not_configured: "SMS is not set up.",
+  send_failed: "The text did not send.",
+};
+
+/** Plain status for the ALLOW text. Reload the page to ask Photon again. */
+export function textStatusLabel(status?: string, failure?: string): string {
+  if (!status) return "SMS not sent";
+  if (status === "delivered") return "SMS delivered";
+  if (status === "accepted") return "SMS accepted by the carrier";
+  if (status === "dispatched") return "SMS sent, waiting on the carrier";
+  if (status === "failed") {
+    const detail = failure ? TEXT_FAILURES[failure] : undefined;
+    return detail ? `SMS failed. ${detail}` : "SMS failed.";
+  }
+  return `SMS status: ${status}`;
+}
+
+/** Carrier state can still change. Delivered and failed are final. */
+export function inviteStillOpen(status?: string): boolean {
+  return status === "dispatched" || status === "accepted";
+}
+
 /** Case summaries stay hidden until this person has agreed with ScamCheck. */
 export function parentIsWatching(consentAcceptedAt: Date | undefined): boolean {
   return consentAcceptedAt instanceof Date && !Number.isNaN(consentAcceptedAt.getTime());
