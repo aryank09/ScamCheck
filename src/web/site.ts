@@ -107,6 +107,7 @@ async function home(account: Account | null): Promise<SiteResult> {
           <article><b>2</b><h2>Add a parent</h2><p>Enter their name and mobile number, the same way you would add a child to a family account.</p></article>
           <article><b>3</b><h2>Read the metrics</h2><p>Emails checked, warnings, calls, and family replies appear after that number has agreed with ScamCheck.</p></article>
         </div>
+        <p class="fine"><a href="/radar">See the Community Scam Radar →</a> Scams going around ScamCheck families this week.</p>
         <p class="fine">Automated check. It can be wrong. Verify with the company directly.</p>
       </main>`,
     ),
@@ -407,7 +408,8 @@ function secureCookie(): boolean {
   return (process.env.PUBLIC_BASE_URL ?? "").startsWith("https://");
 }
 
-function page(title: string, body: string): string {
+/** Shared site template. `head` adds extra tags (e.g. the radar page refresh). */
+export function page(title: string, body: string, head = ""): string {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -416,6 +418,7 @@ function page(title: string, body: string): string {
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'">
   <title>${escapeHtml(title)}</title>
+  ${head}
   <style>
     :root { color-scheme: light; --bg: #f3efe6; --ink: #1c1714; --muted: #6d645c; --card: #fffdf8; --line: #e4dcd0; --scam: #9f1239; --warn: #92400e; --quiet: #3f6212; }
     * { box-sizing: border-box; }
@@ -474,7 +477,7 @@ ${body}
 </html>`;
 }
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
