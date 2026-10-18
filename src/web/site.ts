@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { listCasesForUser } from "../db/cases.js";
 import {
   accountForToken,
@@ -7,6 +8,7 @@ import {
   ensureParentConnectToken,
   findAccountByEmail,
   listParentLinks,
+  listParentLinksByPhone,
   openSession,
   removeParentLink,
   type Account,
@@ -14,6 +16,7 @@ import {
 } from "../db/accounts.js";
 import { checkPassword } from "../db/accounts.js";
 import { findUserByPhone } from "../db/users.js";
+import { disconnectGmail } from "../email/oauth.js";
 import { familyView, type FamilySnapshot } from "./family.js";
 import {
   clearSessionCookie,
@@ -38,7 +41,20 @@ const NOTICES: Record<string, string> = {
   added: "Added. Send them the Gmail link on their card. Email checks start once they sign in with Google.",
   connected: "Added. Their Gmail is already connected, so their summaries are on this page.",
   removed: "Removed from your account.",
+  stopped: "Removed. ScamCheck stopped reading their Gmail.",
 };
+
+// A reload would wipe a half-typed parent or a link being copied, so it waits for those.
+const LIVE_REFRESH_JS = `setInterval(function () {
+  if (document.hidden || String(getSelection())) return;
+  var active = document.activeElement;
+  if (active && active.matches("input, select")) return;
+  var typed = Array.prototype.some.call(
+    document.querySelectorAll("form input:not([type=hidden]):not([readonly])"),
+    function (input) { return input.value; }
+  );
+  if (!typed) location.replace("/app");
+}, 15000);`;
 
 export interface SiteResult {
   status: number;
@@ -171,7 +187,18 @@ async function removeParent(account: Account, fields: Record<string, string>): P
   const parsed = parseParent({ ...fields, language: "en" });
   if (!parsed.ok) return { status: 303, redirect: "/app?error=missing" };
   const removed = await removeParentLink(account._id, parsed.value.phone);
-  return { status: 303, redirect: removed ? "/app?notice=removed" : "/app?error=missing" };
+  if (!removed) return { status: 303, redirect: "/app?error=missing" };
+  const stopped = await stopGmailIfNobodyWatches(parsed.value.phone);
+  return { status: 303, redirect: "/app?notice=" + (stopped ? "stopped" : "removed") };
+}
+
+// Another family account may still rely on this parent's email checks.
+async function stopGmailIfNobodyWatches(phone: string): Promise<boolean> {
+  if ((await listParentLinksByPhone(phone)).length > 0) return false;
+  const user = await findUserByPhone(phone);
+  if (!user?.gmail) return false;
+  await disconnectGmail(user);
+  return true;
 }
 
 interface ParentCard {
@@ -234,6 +261,7 @@ function dashboardPage(account: Account, cards: ParentCard[], notice: string, er
       ${cards.length === 0 ? `<p class="lede">No parents yet.</p>` : cards.map(renderCard).join("")}
       <p class="fine">Automated check. It can be wrong. Verify with the company directly.</p>
     </main>`,
+    LIVE_REFRESH_JS,
   );
 }
 
@@ -386,15 +414,19 @@ function secureCookie(): boolean {
   return (process.env.PUBLIC_BASE_URL ?? "").startsWith("https://");
 }
 
-/** Shared site template. `head` adds extra tags (e.g. the radar page refresh). */
-export function page(title: string, body: string, head = ""): string {
+/**
+ * Shared site template. `script` is inline JS allowed by its CSP hash (dashboard refresh);
+ * `head` adds extra tags (e.g. the radar page's meta refresh).
+ */
+export function page(title: string, body: string, script = "", head = ""): string {
+  const scriptSrc = script ? `; script-src 'sha256-${createHash("sha256").update(script).digest("base64")}'` : "";
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'${scriptSrc}">
   <title>${escapeHtml(title)}</title>
   ${head}
   <style>
@@ -454,6 +486,7 @@ export function page(title: string, body: string, head = ""): string {
 </head>
 <body>
 ${body}
+${script ? `<script>${script}</script>` : ""}
 </body>
 </html>`;
 }

@@ -1,0 +1,14 @@
+{
+  "id": "real-forwarded-spf-fail",
+  "expectHighFinding": false,
+  "message": {
+    "source": "email",
+    "from": "it-news@college.example.edu",
+    "displayName": "Campus IT",
+    "subject": "Planned maintenance Sunday",
+    "text": "Email will be slow for one hour on Sunday morning while we update servers.",
+    "links": [],
+    "authenticationResults": "mx.google.com; dkim=pass header.i=@college.example.edu; spf=fail (google.com: domain of it-news@college.example.edu does not designate 203.0.113.5 as permitted sender); dmarc=pass (p=NONE) header.from=college.example.edu",
+    "seenSenderBefore": true
+  }
+}

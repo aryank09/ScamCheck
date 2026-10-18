@@ -43,6 +43,15 @@ const URGENCY: readonly RegExp[] = [
   /\brefund\b/i,
 ];
 
+// Link text like "site.ts" or "README.md" names a file, not a website.
+const WEB_TLDS = new Set(["com", "net", "org", "gov", "edu", "mil", "us", "io", "co", "info", "biz", "me", "app", "ai", "uk", "ca"]);
+
+interface Claim {
+  brand: Brand;
+  /** The sender name reads as the company. A subject mention is weak. */
+  strong: boolean;
+}
+
 const CONFUSABLE_FOLDS: readonly [RegExp, string][] = [
   [/0/g, "o"],
   [/1/g, "l"],
@@ -94,8 +103,8 @@ export function collectEvidence(message: ParsedMessage): Finding[] {
   for (const host of hostsToInspect(view, fromHost)) {
     for (const finding of lookalikeFindings(host)) add(finding);
   }
-  for (const brand of claimed) {
-    for (const finding of brandMismatchFindings(brand, fromHost, links)) add(finding);
+  for (const claim of claimed) {
+    for (const finding of brandMismatchFindings(claim, fromHost, links)) add(finding);
   }
   for (const link of links) {
     const hidden = hiddenLinkFinding(link);
@@ -125,7 +134,8 @@ export function collectEvidence(message: ParsedMessage): Finding[] {
   }
 
   if (view.source !== "email") {
-    const impersonation = textSenderFinding(view, claimed);
+    const strongClaims = claimed.filter((claim) => claim.strong).map((claim) => claim.brand);
+    const impersonation = textSenderFinding(view, strongClaims);
     if (impersonation) add(impersonation);
   }
 
@@ -142,10 +152,23 @@ function hostsToInspect(message: ParsedMessage, fromHost: string | null): string
   return [...hosts];
 }
 
-/** Display name and subject only. A body mention, or an email address, is not a claim of identity. */
-function identityClaims(message: ParsedMessage): Brand[] {
-  const haystack = [claimText(message.displayName), claimText(message.subject)].filter(Boolean).join("\n");
-  return BRANDS.filter((brand) => brand.patterns.some((pattern) => pattern.test(haystack)));
+/**
+ * Display name and subject only. A body mention, or an email address, is not a claim of identity.
+ * Stores and newsletters put brand names in subjects, so only the sender name makes a strong claim.
+ */
+function identityClaims(message: ParsedMessage): Claim[] {
+  const name = claimText(message.displayName);
+  const subject = claimText(message.subject);
+  const claims: Claim[] = [];
+  for (const brand of BRANDS) {
+    if (mentions(brand, name) && (brand.senderName?.test(name) ?? true)) claims.push({ brand, strong: true });
+    else if (mentions(brand, subject)) claims.push({ brand, strong: false });
+  }
+  return claims;
+}
+
+function mentions(brand: Brand, text: string): boolean {
+  return text !== "" && brand.patterns.some((pattern) => pattern.test(text));
 }
 
 function claimText(value: string | undefined): string {
@@ -153,9 +176,22 @@ function claimText(value: string | undefined): string {
   return value.replace(/[^\s<>"]+@[^\s<>"]+/g, " ");
 }
 
-function brandMismatchFindings(brand: Brand, fromHost: string | null, links: MessageLink[]): Finding[] {
+function brandMismatchFindings(claim: Claim, fromHost: string | null, links: MessageLink[]): Finding[] {
+  const { brand } = claim;
+  // Real brand mail links to social pages, app stores, and click trackers. A spoofed From fails DMARC.
+  if (fromHost && isOfficialHost(fromHost, brand)) return [];
+  if (!claim.strong) {
+    if (!fromHost) return [];
+    return [
+      {
+        code: "BRAND_MISMATCH",
+        severity: "medium",
+        detail: `It mentions ${brand.name}, but the sender domain is ${registrableDomain(fromHost) ?? fromHost}.`,
+      },
+    ];
+  }
   const findings: Finding[] = [];
-  if (fromHost && !isOfficialHost(fromHost, brand)) {
+  if (fromHost) {
     findings.push({
       code: "BRAND_MISMATCH",
       severity: "high",
@@ -216,17 +252,17 @@ function hiddenLinkFinding(link: MessageLink): Finding | null {
   if (!hrefHost) return null;
   const hrefDomain = registrableDomain(hrefHost);
   if (!hrefDomain) return null;
-  for (const visibleHost of domainsInText(link.visibleText)) {
-    const visibleDomain = registrableDomain(visibleHost);
-    if (visibleDomain && visibleDomain !== hrefDomain) {
-      return {
-        code: "HIDDEN_LINK",
-        severity: "high",
-        detail: `The link text shows ${visibleDomain}, but it goes to ${hrefDomain}.`,
-      };
-    }
-  }
-  return null;
+  const shown = domainsInText(link.visibleText)
+    .map(registrableDomain)
+    .filter((domain): domain is string => domain !== null && domain !== hrefDomain);
+  if (shown.length === 0) return null;
+  // Newsletters send every link through a click tracker. Showing a bank's or agency's site is the scam.
+  const brandSite = shown.find((domain) => BRANDS.some((brand) => brand.domains.includes(domain)));
+  return {
+    code: "HIDDEN_LINK",
+    severity: brandSite ? "high" : "medium",
+    detail: `The link text shows ${brandSite ?? shown[0]}, but it goes to ${hrefDomain}.`,
+  };
 }
 
 function shortenerFinding(href: string): Finding | null {
@@ -267,10 +303,12 @@ function textSenderFinding(message: ParsedMessage, claimed: Brand[]): Finding | 
 
 function failedAuth(header: string | undefined): string[] {
   if (!header) return [];
-  const failed: string[] = [];
-  for (const protocol of ["spf", "dkim", "dmarc"]) {
-    if (new RegExp(`\\b${protocol}\\s*=\\s*fail\\b`, "i").test(header)) failed.push(protocol);
-  }
+  const result = (protocol: string, outcome: string) =>
+    new RegExp(`\\b${protocol}\\s*=\\s*${outcome}\\b`, "i").test(header);
+  if (result("dmarc", "pass")) return [];
+  const failed = ["spf", "dkim", "dmarc"].filter((protocol) => result(protocol, "fail"));
+  // Forwarding breaks SPF and mailing lists break DKIM, so one passing check outweighs the other failing.
+  if (!failed.includes("dmarc") && (result("spf", "pass") || result("dkim", "pass"))) return [];
   return failed;
 }
 
@@ -302,8 +340,11 @@ function foldConfusables(host: string): string {
 
 function domainsInText(text: string): string[] {
   const found = new Set<string>();
-  for (const match of text.matchAll(/\b((?:[a-z0-9-]+\.)+[a-z]{2,})\b/gi)) {
-    if (match[1]) found.add(match[1].toLowerCase());
+  for (const match of text.matchAll(/(https?:\/\/)?\b((?:[a-z0-9-]+\.)+([a-z]{2,}))\b/gi)) {
+    const host = match[2]?.toLowerCase();
+    const tld = match[3]?.toLowerCase();
+    if (!host || !tld) continue;
+    if (match[1] || host.startsWith("www.") || WEB_TLDS.has(tld)) found.add(host);
   }
   return [...found];
 }

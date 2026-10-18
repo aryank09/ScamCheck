@@ -2,7 +2,7 @@
 
 `npm run fixtures` scores every JSON file in `tests/fixtures` with the rule checks only. All names, phone numbers, domains, and message text are fake or sanitized.
 
-**Caught 23, missed 0, false alarms 0, total 39.**
+**Caught 23, missed 0, false alarms 0, total 45.** `npm test` checks the same expectations.
 
 The first set landed with detection. [PR #8](https://github.com/Se9uencer/ScamCheck/pull/8) added lookalikes, a hidden link, a reply-to mismatch, injection that still flags, mixed language, a real FedEx email, and the USPS family pair. [PR #16](https://github.com/Se9uencer/ScamCheck/pull/16) added the screenshot forward, already-paid language, the late-night Chase pair, and injection on a real Apple domain.
 
@@ -52,6 +52,17 @@ Passing DMARC, official From domain, no high finding.
 - `real-amazon`, `real-apple`, `real-bankofamerica`, `real-chase`, `real-fedex`, `real-irs`, `real-microsoft`, `real-netflix`, `real-paypal`, `real-usps`, `real-wellsfargo`
 - `real-mentions-paypal` — a friend on `gmail.com` mentions PayPal in the body. No brand mismatch.
 - `real-address-as-name` — a real Chase statement whose display name is the sender address itself (`alerts@chase.com`). The address must not be read as a claimed brand on another domain.
+
+## Everyday email that used to raise false alarms
+
+Each of these was a high finding, so a scam verdict and a warning call, before the rules were tightened. A brand in the subject is now a medium hint, not a claim. Mail from the brand's own domain is not judged by its footer links. Link text must look like a website, and only a listed brand's site counts as high. A DMARC pass outweighs one failed SPF or DKIM check.
+
+- `real-chase-social-footer` — a real Chase statement with Facebook, Instagram, and App Store links. Clear.
+- `real-store-mentions-apple` — Best Buy shipping "Apple AirPods". Medium brand mismatch only.
+- `real-person-named-chase` — a friend named Chase Miller on `gmail.com`. Clear.
+- `real-newsletter-click-tracking` — link text shows the newsletter's site, `href` goes through SendGrid. Medium hidden link only.
+- `real-github-file-link` — a GitHub review email whose link text is `src/web/site.ts`. Clear.
+- `real-forwarded-spf-fail` — forwarded campus mail: SPF fails, DKIM and DMARC pass. Clear.
 
 ## Family same-scam pairs
 

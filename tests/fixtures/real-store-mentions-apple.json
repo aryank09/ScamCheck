@@ -1,0 +1,15 @@
+{
+  "id": "real-store-mentions-apple",
+  "expectHighFinding": false,
+  "expectCodes": ["BRAND_MISMATCH"],
+  "message": {
+    "source": "email",
+    "from": "orders@bestbuy.com",
+    "displayName": "Best Buy",
+    "subject": "Your Apple AirPods Pro order has shipped",
+    "text": "Good news: your order is on its way. It should arrive Thursday.",
+    "links": [{ "visibleText": "Track your order", "href": "https://www.bestbuy.com/orders" }],
+    "authenticationResults": "mx.google.com; dkim=pass header.i=@bestbuy.com; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}

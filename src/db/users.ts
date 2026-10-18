@@ -189,6 +189,12 @@ export async function listGmailUsers(): Promise<User[]> {
   return docs.map(toUser);
 }
 
+/** The watcher only reads users with a Gmail token, so this stops their email checks. */
+export async function clearGmail(id: ObjectId): Promise<void> {
+  const db = await getDb();
+  await db.collection("users").updateOne({ _id: id }, { $unset: { gmail: "" } });
+}
+
 export async function createUser(phone: string, messagePlatform: MessagePlatform = "imessage"): Promise<User> {
   const normalized = normalizePhone(phone);
   const db = await getDb();

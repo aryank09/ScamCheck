@@ -31,7 +31,7 @@ export function radarPageHtml(radar: RadarSnapshot, now = new Date()): string {
     ${radar.waves.length ? radar.waves.map((wave) => waveCard(wave, now)).join("") : `<p class="lede">No scams reported this week.</p>`}
     <p class="fine">Updates every 10 seconds. Counts are families, not messages. Only the brand and the scammer's website are shown, never who received it.</p>
   </main>`;
-  return page("Community Scam Radar · ScamCheck", body, `<meta http-equiv="refresh" content="10">`);
+  return page("Community Scam Radar · ScamCheck", body, "", `<meta http-equiv="refresh" content="10">`);
 }
 
 function metric(label: string, value: string): string {

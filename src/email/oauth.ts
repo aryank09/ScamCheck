@@ -1,7 +1,15 @@
 import { google } from "googleapis";
 import { findAccountById, findParentLinkByConnectToken, rememberParentUser } from "../db/accounts.js";
-import { createUser, findUserByConnectToken, findUserByPhone, listGmailUsers, saveUser } from "../db/users.js";
-import { encryptToken } from "./tokens.js";
+import {
+  clearGmail,
+  createUser,
+  findUserByConnectToken,
+  findUserByPhone,
+  listGmailUsers,
+  saveUser,
+  type User,
+} from "../db/users.js";
+import { decryptToken, encryptToken } from "./tokens.js";
 
 const SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 // OAuth state for a link made on the account site. A bare state is the user's own connect token.
@@ -21,6 +29,17 @@ export async function revokeGmail(refreshToken: string): Promise<void> {
   const client = oauthClient();
   if (!client) return;
   await client.revokeToken(refreshToken);
+}
+
+/** Revoke the stored token and forget the mailbox. A failed revoke still forgets it. */
+export async function disconnectGmail(user: User): Promise<void> {
+  if (!user.gmail) return;
+  try {
+    await revokeGmail(decryptToken(user.gmail.refreshTokenEnc));
+  } catch (error) {
+    console.error("gmail revoke failed error=" + (error as Error).name);
+  }
+  await clearGmail(user._id);
 }
 
 /** `userToken` comes from an onboarding text (?u=), `parentToken` from the account site (?p=). */
