@@ -482,7 +482,7 @@ function render(data) {
   const addPanel = el("div", "panel");
   const addForm = document.createElement("form");
   addForm.id = "helper-form";
-  field(addForm, "helper-name", "Name", "Aryan");
+  field(addForm, "helper-name", "Name", "Omar");
   field(addForm, "helper-phone", "Phone", "+1 206 555 0100");
   field(addForm, "helper-relation", "Relation, optional", "son");
   const addButton = el("button", "", "Add helper");
