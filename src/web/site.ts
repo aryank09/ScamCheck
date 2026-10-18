@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { listCasesForUser } from "../db/cases.js";
+import { DEFAULT_QUIET_HOURS } from "../core/quietHours.js";
+import { listCasesForUser, type CaseRecord } from "../db/cases.js";
 import {
   accountForToken,
   addParentLink,
@@ -17,7 +17,6 @@ import {
 import { checkPassword } from "../db/accounts.js";
 import { findUserByPhone } from "../db/users.js";
 import { disconnectGmail } from "../email/oauth.js";
-import { familyView, type FamilySnapshot } from "./family.js";
 import {
   clearSessionCookie,
   parentIsWatching,
@@ -26,35 +25,30 @@ import {
   readCookie,
   sessionCookie,
 } from "./accountForms.js";
+import { brandMark, escapeHtml, page } from "./layout.js";
+import { caseStats, parentView, parseRange, type ParentView, type RangeDays } from "./stats.js";
+import {
+  addParentPage,
+  authPage,
+  landingPage,
+  overviewPage,
+  parentPage,
+  type AccountView,
+  type RecentWarning,
+} from "./views.js";
+
+export { escapeHtml, page } from "./layout.js";
 
 const MAX_PARENTS = 8;
 const COOKIE = "scamcheck_session";
-
-const LANGUAGE_LABELS: Record<string, string> = {
-  en: "English",
-  es: "Spanish",
-  ur: "Urdu",
-  hi: "Hindi",
-};
+const PARENT_PATH = /^\/app\/parents\/([a-f0-9]{24})$/;
+// The server runs in UTC; dashboard days and times use the same zone as quiet hours.
+const DISPLAY_TIME_ZONE = DEFAULT_QUIET_HOURS.tz;
 
 const NOTICES: Record<string, string> = {
-  added: "Added. Send them the Gmail link on their card. Email checks start once they sign in with Google.",
-  connected: "Added. Their Gmail is already connected, so their summaries are on this page.",
   removed: "Removed from your account.",
   stopped: "Removed. ScamCheck stopped reading their Gmail.",
 };
-
-// A reload would wipe a half-typed parent or a link being copied, so it waits for those.
-const LIVE_REFRESH_JS = `setInterval(function () {
-  if (document.hidden || String(getSelection())) return;
-  var active = document.activeElement;
-  if (active && active.matches("input, select")) return;
-  var typed = Array.prototype.some.call(
-    document.querySelectorAll("form input:not([type=hidden]):not([readonly])"),
-    function (input) { return input.value; }
-  );
-  if (!typed) location.replace("/app");
-}, 15000);`;
 
 export interface SiteResult {
   status: number;
@@ -64,19 +58,18 @@ export interface SiteResult {
 }
 
 export function isSitePath(pathname: string): boolean {
-  return (
-    pathname === "/" ||
-    pathname === "/signup" ||
-    pathname === "/login" ||
-    pathname === "/logout" ||
-    pathname === "/app" ||
-    pathname === "/app/parents" ||
-    pathname === "/app/parents/remove"
-  );
+  return ["/", "/signup", "/login", "/logout", "/app"].includes(pathname) || pathname.startsWith("/app/");
 }
 
 export function siteErrorHtml(message: string): string {
-  return page("ScamCheck", `<main><p class="lede">${escapeHtml(message)}</p></main>`);
+  return page(
+    "ScamCheck",
+    `<main>
+      <a class="brand" href="/">${brandMark(32)}<span>ScamCheck</span></a>
+      <p class="lede" style="margin-top:28px">${escapeHtml(message)}</p>
+      <p><a class="btn btn-secondary" href="/">Back to home</a></p>
+    </main>`,
+  );
 }
 
 export async function handleSite(
@@ -86,7 +79,7 @@ export async function handleSite(
   body: Buffer | undefined,
 ): Promise<SiteResult> {
   const token = readCookie(cookieHeader, COOKIE);
-  if (method === "GET" && url.pathname === "/") return home(await viewer(token));
+  if (method === "GET" && url.pathname === "/") return { status: 200, html: landingPage(Boolean(await viewer(token))) };
   if (method === "GET" && url.pathname === "/signup") return authGet("signup", token);
   if (method === "GET" && url.pathname === "/login") return authGet("login", token);
   if (method === "POST" && url.pathname === "/signup") return signup(readForm(body));
@@ -95,36 +88,15 @@ export async function handleSite(
   if (url.pathname === "/app" || url.pathname.startsWith("/app/")) {
     const account = await accountForToken(token);
     if (!account) return { status: 303, redirect: "/login" };
-    if (method === "GET" && url.pathname === "/app") return dashboard(account, url);
+    if (method === "GET" && url.pathname === "/app") return overview(account, url);
+    if (method === "GET" && url.pathname === "/app/parents/new") return newParent(account);
     if (method === "POST" && url.pathname === "/app/parents") return addParent(account, readForm(body));
     if (method === "POST" && url.pathname === "/app/parents/remove") return removeParent(account, readForm(body));
+    const parentId = PARENT_PATH.exec(url.pathname)?.[1];
+    if (method === "GET" && parentId) return parentDetail(account, parentId, url);
+    return { status: 404, html: siteErrorHtml("That page does not exist.") };
   }
   return { status: 405, html: siteErrorHtml("That action is not available.") };
-}
-
-async function home(account: Account | null): Promise<SiteResult> {
-  const actions = account
-    ? `<a class="button" href="/app">Open your parents</a>`
-    : `<a class="button" href="/signup">Create an account</a><a class="button ghost" href="/login">Log in</a>`;
-  return {
-    status: 200,
-    html: page(
-      "ScamCheck",
-      `<main>
-        <p class="eyebrow">ScamCheck</p>
-        <h1>Keep an eye on your parents.</h1>
-        <p class="lede">Create an account, add a parent with their Gmail address, and read warning summaries here. Their emails stay off this page.</p>
-        <p class="actions">${actions}</p>
-        <div class="steps">
-          <article><b>1</b><h2>Create an account</h2><p>Your login is for you, the person who wants the summaries.</p></article>
-          <article><b>2</b><h2>Add a parent</h2><p>Enter their name, mobile number, and Gmail address, then send them their Gmail link.</p></article>
-          <article><b>3</b><h2>Read the metrics</h2><p>Emails checked, warnings, and calls appear once they connect Gmail.</p></article>
-        </div>
-        <p class="fine"><a href="/radar">See the Community Scam Radar →</a> Scams going around ScamCheck families this week.</p>
-        <p class="fine">Automated check. It can be wrong. Verify with the company directly.</p>
-      </main>`,
-    ),
-  };
 }
 
 async function authGet(mode: "signup" | "login", token: string): Promise<SiteResult> {
@@ -159,36 +131,98 @@ async function logout(token: string): Promise<SiteResult> {
   return { status: 303, redirect: "/", cookie: clearSessionCookie(secureCookie()) };
 }
 
-async function dashboard(account: Account, url: URL): Promise<SiteResult> {
-  const notice = NOTICES[url.searchParams.get("notice") ?? ""] ?? "";
-  const error = dashboardError(url.searchParams.get("error") ?? "");
-  const links = await listParentLinks(account._id);
-  const cards = await Promise.all(links.map(parentCard));
-  return { status: 200, html: dashboardPage(account, cards, notice, error) };
+async function overview(account: Account, url: URL): Promise<SiteResult> {
+  const days = parseRange(url.searchParams.get("days"));
+  const now = new Date();
+  const loaded = await loadParents(account, days, now);
+  const parents = loaded.map((item) => item.view);
+  const recent: RecentWarning[] = parents
+    .flatMap((parent) => parent.warnings.map((item) => ({ ...item, parentId: parent.id, parentName: parent.name })))
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .slice(0, 8);
+  return {
+    status: 200,
+    html: overviewPage({
+      account: accountView(account),
+      parents,
+      totals: caseStats(
+        loaded.flatMap((item) => item.cases),
+        days,
+        now,
+        DISPLAY_TIME_ZONE,
+      ),
+      recent,
+      days,
+      now,
+      timeZone: DISPLAY_TIME_ZONE,
+      notice: NOTICES[url.searchParams.get("notice") ?? ""],
+      error: url.searchParams.get("error") === "missing" ? "That parent is not on your account." : undefined,
+    }),
+  };
+}
+
+async function parentDetail(account: Account, id: string, url: URL): Promise<SiteResult> {
+  const days = parseRange(url.searchParams.get("days"));
+  const now = new Date();
+  const parents = (await loadParents(account, days, now)).map((item) => item.view);
+  const parent = parents.find((item) => item.id === id);
+  if (!parent) return { status: 404, html: siteErrorHtml("That parent is not on your account.") };
+  const notice = url.searchParams.get("notice");
+  return {
+    status: 200,
+    html: parentPage({
+      account: accountView(account),
+      parents,
+      parent,
+      days,
+      now,
+      timeZone: DISPLAY_TIME_ZONE,
+      notice: notice === "added" || notice === "connected" ? notice : undefined,
+    }),
+  };
+}
+
+async function newParent(account: Account): Promise<SiteResult> {
+  const parents = await sidebarParents(account);
+  return {
+    status: 200,
+    html: addParentPage({ account: accountView(account), parents, atLimit: parents.length >= MAX_PARENTS }),
+  };
 }
 
 async function addParent(account: Account, fields: Record<string, string>): Promise<SiteResult> {
+  const retry = async (error: string): Promise<SiteResult> => {
+    const parents = await sidebarParents(account);
+    return {
+      status: 400,
+      html: addParentPage({ account: accountView(account), parents, atLimit: parents.length >= MAX_PARENTS, error, fields }),
+    };
+  };
   const parsed = parseParent(fields);
-  if (!parsed.ok) return { status: 303, redirect: "/app?error=" + parentErrorCode(parsed.error) };
-  if (!parsed.value.email) return { status: 303, redirect: "/app?error=email" };
+  if (!parsed.ok) return retry(parsed.error);
+  if (!parsed.value.email) return retry("Enter their Gmail address.");
   const links = await listParentLinks(account._id);
-  if (links.some((link) => link.phone === parsed.value.phone)) return { status: 303, redirect: "/app?error=duplicate" };
-  if (links.length >= MAX_PARENTS) return { status: 303, redirect: "/app?error=limit" };
+  if (links.some((link) => link.phone === parsed.value.phone)) return retry("That number is already on your account.");
+  if (links.length >= MAX_PARENTS) return retry("You can add up to 8 parents.");
   const user = await findUserByPhone(parsed.value.phone);
   const result = await addParentLink(account._id, { ...parsed.value, userId: user?._id });
-  if (result === "duplicate") return { status: 303, redirect: "/app?error=duplicate" };
+  if (result === "duplicate") return retry("That number is already on your account.");
   // No confirmation step (team decision 10-17-26): adding a parent shows their summaries right away.
   // ponytail: anyone who knows a consenting parent's number can see their summaries; restore a
   // parent-side approval before real launch.
-  return { status: 303, redirect: "/app?notice=" + (user?.gmail ? "connected" : "added") };
+  const added = (await listParentLinks(account._id)).find((link) => link.phone === parsed.value.phone);
+  if (!added) return { status: 303, redirect: "/app" };
+  const notice = user?.gmail ? "connected" : "added";
+  return { status: 303, redirect: `/app/parents/${added._id.toHexString()}?notice=${notice}` };
 }
 
 async function removeParent(account: Account, fields: Record<string, string>): Promise<SiteResult> {
-  const parsed = parseParent({ ...fields, language: "en" });
-  if (!parsed.ok) return { status: 303, redirect: "/app?error=missing" };
-  const removed = await removeParentLink(account._id, parsed.value.phone);
+  const id = fields.id ?? "";
+  const link = (await listParentLinks(account._id)).find((item) => item._id.toHexString() === id);
+  if (!link) return { status: 303, redirect: "/app?error=missing" };
+  const removed = await removeParentLink(account._id, link.phone);
   if (!removed) return { status: 303, redirect: "/app?error=missing" };
-  const stopped = await stopGmailIfNobodyWatches(parsed.value.phone);
+  const stopped = await stopGmailIfNobodyWatches(link.phone);
   return { status: 303, redirect: "/app?notice=" + (stopped ? "stopped" : "removed") };
 }
 
@@ -201,21 +235,26 @@ async function stopGmailIfNobodyWatches(phone: string): Promise<boolean> {
   return true;
 }
 
-interface ParentCard {
-  link: ParentLink;
-  watching: boolean;
-  gmailConnected: boolean;
-  connectUrl?: string;
-  snapshot?: FamilySnapshot;
+interface LoadedParent {
+  view: ParentView;
+  /** Empty until the parent has agreed, so totals never include hidden cases. */
+  cases: CaseRecord[];
 }
 
-async function parentCard(link: ParentLink): Promise<ParentCard> {
+async function loadParents(account: Account, days: RangeDays, now: Date): Promise<LoadedParent[]> {
+  const links = await listParentLinks(account._id);
+  return Promise.all(links.map((link) => loadParent(link, days, now)));
+}
+
+async function loadParent(link: ParentLink, days: RangeDays, now: Date): Promise<LoadedParent> {
   const user = await findUserByPhone(link.phone);
-  const gmailConnected = Boolean(user?.gmail);
-  const connectUrl = gmailConnected ? undefined : gmailLink(await ensureParentConnectToken(link));
-  const card: ParentCard = { link, watching: false, gmailConnected, connectUrl };
-  if (!user || !parentIsWatching(user.consentAcceptedAt)) return card;
-  return { ...card, watching: true, snapshot: familyView(user, await listCasesForUser(user._id, 7)) };
+  const connectUrl = user?.gmail ? undefined : gmailLink(await ensureParentConnectToken(link));
+  const cases = user && parentIsWatching(user.consentAcceptedAt) ? await listCasesForUser(user._id, days) : [];
+  return { view: parentView(link, user, cases, { days, now, timeZone: DISPLAY_TIME_ZONE, connectUrl }), cases };
+}
+
+async function sidebarParents(account: Account): Promise<ParentView[]> {
+  return (await loadParents(account, 7, new Date())).map((item) => item.view);
 }
 
 function gmailLink(token: string): string | undefined {
@@ -223,175 +262,8 @@ function gmailLink(token: string): string | undefined {
   return base ? `${base}/connect/gmail?p=${token}` : undefined;
 }
 
-function dashboardPage(account: Account, cards: ParentCard[], notice: string, error: string): string {
-  return page(
-    "Your parents",
-    `<main>
-      <div class="top">
-        <div>
-          <p class="eyebrow">ScamCheck</p>
-          <h1>${escapeHtml(account.name)}</h1>
-        </div>
-        <form method="post" action="/logout"><button class="ghost" type="submit">Log out</button></form>
-      </div>
-      <p class="lede">Add a parent with their mobile number and Gmail address, then send them their Gmail link. Once they sign in with Google, ScamCheck checks their new emails and their warnings show here.</p>
-      ${banner(notice, error)}
-      <section class="panel">
-        <h2>Add a parent</h2>
-        <form method="post" action="/app/parents">
-          <label for="parent-name">Name</label>
-          <input id="parent-name" name="name" maxlength="80" autocomplete="name" required>
-          <label for="parent-phone">Mobile number, for warning calls</label>
-          <input id="parent-phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+1 206 555 0100" required>
-          <label for="parent-email">Their Gmail address</label>
-          <input id="parent-email" name="email" type="email" maxlength="200" autocomplete="off" placeholder="mom@gmail.com" required>
-          <label for="parent-language">Language they prefer</label>
-          <select id="parent-language" name="language">
-            <option value="en">English</option>
-            <option value="es">Spanish</option>
-            <option value="ur">Urdu</option>
-            <option value="hi">Hindi</option>
-          </select>
-          <label for="parent-relation">Relation, optional</label>
-          <input id="parent-relation" name="relation" maxlength="40" placeholder="mom">
-          <button type="submit">Add parent</button>
-        </form>
-      </section>
-      <h2>Parents</h2>
-      ${cards.length === 0 ? `<p class="lede">No parents yet.</p>` : cards.map(renderCard).join("")}
-      <p class="fine">Automated check. It can be wrong. Verify with the company directly.</p>
-    </main>`,
-    LIVE_REFRESH_JS,
-  );
-}
-
-function renderCard(card: ParentCard): string {
-  const last4 = card.link.phone.replace(/\D/g, "").slice(-4);
-  const who = card.link.relation ? `${card.link.parentName} · ${card.link.relation}` : card.link.parentName;
-  const language = card.snapshot?.languageLabel ?? LANGUAGE_LABELS[card.link.language] ?? card.link.language;
-  const status = card.watching
-    ? `<span class="pill watching">Watching</span>`
-    : `<span class="pill waiting">Waiting for Gmail</span>`;
-  const body = card.watching && card.snapshot
-    ? metricsBlock(card.snapshot)
-    : `<p class="lede">Summaries show here once they connect Gmail.</p>`;
-  return `<article class="card parent">
-    <header>
-      <div><h3>${escapeHtml(who)}</h3><p class="meta">···${escapeHtml(last4)} · ${escapeHtml(language)}</p></div>
-      ${status}
-    </header>
-    ${card.gmailConnected ? "" : connectBlock(card)}
-    ${body}
-    <form method="post" action="/app/parents/remove">
-      <input type="hidden" name="name" value="${escapeHtml(card.link.parentName)}">
-      <input type="hidden" name="phone" value="${escapeHtml(card.link.phone)}">
-      <button class="ghost" type="submit">Remove</button>
-    </form>
-  </article>`;
-}
-
-function connectBlock(card: ParentCard): string {
-  if (!card.connectUrl) return `<p class="meta">Gmail: the connect link is not ready yet.</p>`;
-  const mailbox = card.link.email ? escapeHtml(card.link.email) : "their Gmail";
-  const name = escapeHtml(card.link.parentName);
-  const url = escapeHtml(card.connectUrl);
-  return `<div class="connect">
-      <p class="meta">Gmail: waiting for ${mailbox} to connect</p>
-      <p>Send ${name} this link, or open it with them. They sign in with Google and allow read-only access. ScamCheck can read their email but cannot send or delete it.</p>
-      <input readonly value="${url}" aria-label="Gmail link for ${name}">
-      <p class="fine"><a href="${url}">Open the link</a></p>
-    </div>`;
-}
-
-function metricsBlock(snapshot: FamilySnapshot): string {
-  const gmail = snapshot.gmailConnected
-    ? `Gmail connected${snapshot.gmailEmail ? " · " + snapshot.gmailEmail : ""}`
-    : "Gmail not connected";
-  const metrics = [
-    ["Emails checked", snapshot.metrics.emailsChecked],
-    ["Warnings", snapshot.metrics.warnings],
-    ["Calls", snapshot.metrics.calls],
-    ["Family replies", snapshot.metrics.familyReplies],
-  ]
-    .map(
-      ([label, value]) =>
-        `<div class="metric"><span>${label}</span><b>${escapeHtml(String(value))}</b></div>`,
-    )
-    .join("");
-  const warnings =
-    snapshot.warnings.length === 0
-      ? `<p class="lede">No warnings in the last 7 days.</p>`
-      : `<div class="stack">${snapshot.warnings.slice(0, 5).map(warningCard).join("")}</div>`;
-  return `<p class="meta">${escapeHtml(gmail)}</p>
-    <div class="metrics">${metrics}</div>
-    <p class="fine">${snapshot.quietCount} checks came back with no red flags this week. Emails checked is the running total.</p>
-    ${warnings}`;
-}
-
-function warningCard(item: FamilySnapshot["warnings"][number]): string {
-  const title = item.claimedBrand ? `${item.scamType} · ${item.claimedBrand}` : item.scamType;
-  const label = item.verdict === "scam" ? "Scam" : "Suspicious";
-  return `<article class="card inner">
-    <header><span class="badge ${item.verdict}">${label}</span><span class="when">${escapeHtml(when(item.createdAt))}</span></header>
-    <h3>${escapeHtml(title)}</h3>
-    <p>${escapeHtml(item.summary)}</p>
-  </article>`;
-}
-
-function dashboardError(code: string): string {
-  if (code === "duplicate") return "That number is already on your account.";
-  if (code === "limit") return "You can add up to 8 parents.";
-  if (code === "missing") return "That parent is not on your account.";
-  if (code === "name") return "Enter their name.";
-  if (code === "phone") return "Enter a real mobile number.";
-  if (code === "email") return "Enter their Gmail address.";
-  if (code === "language") return "Choose English, Spanish, Urdu, or Hindi.";
-  return "";
-}
-
-function parentErrorCode(error: string): string {
-  if (error.includes("mobile")) return "phone";
-  if (error.includes("Gmail")) return "email";
-  if (error.includes("Choose")) return "language";
-  return "name";
-}
-
-function authPage(mode: "signup" | "login", error: string, fields: Record<string, string>): string {
-  const signup = mode === "signup";
-  const title = signup ? "Create an account" : "Log in";
-  const name = signup
-    ? `<label for="name">Your name</label><input id="name" name="name" maxlength="80" autocomplete="name" value="${escapeHtml(fields.name ?? "")}" required>`
-    : "";
-  return page(
-    title,
-    `<main>
-      <p class="eyebrow">ScamCheck</p>
-      <h1>${title}</h1>
-      <p class="lede">${signup ? "This account is for you. You will add your parents next." : "Use the email and password from your ScamCheck account."}</p>
-      ${error ? `<p class="note">${escapeHtml(error)}</p>` : ""}
-      <form class="panel" method="post" action="${signup ? "/signup" : "/login"}">
-        ${name}
-        <label for="email">Email</label>
-        <input id="email" name="email" type="email" autocomplete="username" value="${escapeHtml(fields.email ?? "")}" required>
-        <label for="password">Password</label>
-        <input id="password" name="password" type="password" autocomplete="${signup ? "new-password" : "current-password"}" minlength="8" required>
-        <button type="submit">${signup ? "Create account" : "Log in"}</button>
-      </form>
-      <p class="fine">${signup ? `<a href="/login">Log in</a>` : `<a href="/signup">Create an account</a>`}</p>
-    </main>`,
-  );
-}
-
-function banner(notice: string, error: string): string {
-  if (error) return `<p class="note">${escapeHtml(error)}</p>`;
-  if (notice) return `<p class="note ok">${escapeHtml(notice)}</p>`;
-  return "";
-}
-
-function when(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+function accountView(account: Account): AccountView {
+  return { name: account.name || "You", email: account.email };
 }
 
 async function viewer(token: string): Promise<Account | null> {
@@ -412,89 +284,4 @@ function readForm(body: Buffer | undefined): Record<string, string> {
 
 function secureCookie(): boolean {
   return (process.env.PUBLIC_BASE_URL ?? "").startsWith("https://");
-}
-
-/**
- * Shared site template. `script` is inline JS allowed by its CSP hash (dashboard refresh);
- * `head` adds extra tags (e.g. the radar page's meta refresh).
- */
-export function page(title: string, body: string, script = "", head = ""): string {
-  const scriptSrc = script ? `; script-src 'sha256-${createHash("sha256").update(script).digest("base64")}'` : "";
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="referrer" content="no-referrer">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'${scriptSrc}">
-  <title>${escapeHtml(title)}</title>
-  ${head}
-  <style>
-    :root { color-scheme: light; --bg: #f3efe6; --ink: #1c1714; --muted: #6d645c; --card: #fffdf8; --line: #e4dcd0; --scam: #9f1239; --warn: #92400e; --quiet: #3f6212; }
-    * { box-sizing: border-box; }
-    body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.45 ui-sans-serif, system-ui, sans-serif; }
-    main { max-width: 760px; margin: 0 auto; padding: 32px 18px 72px; }
-    a { color: var(--ink); }
-    .eyebrow { margin: 0; color: var(--muted); font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
-    h1 { margin: 6px 0 8px; font-family: Georgia, "Iowan Old Style", serif; font-size: 2.4rem; letter-spacing: -0.03em; line-height: 1.05; }
-    h2 { margin: 28px 0 10px; font-size: 1.15rem; }
-    h3 { margin: 0; font-size: 1.05rem; }
-    .lede, .fine, .meta { color: var(--muted); }
-    .lede { margin: 0 0 16px; }
-    .fine { margin: 16px 0 0; font-size: 14px; }
-    .meta { margin: 4px 0 0; font-size: 14px; }
-    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 28px; }
-    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-    .steps article, .panel, .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; }
-    .steps article { padding: 16px; }
-    .steps b { display: block; font-family: Georgia, serif; font-size: 1.4rem; }
-    .steps h2 { margin: 8px 0 6px; }
-    .steps p { margin: 0; color: var(--muted); }
-    .top { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
-    .panel { padding: 16px; }
-    .card { padding: 16px; margin-top: 12px; }
-    .card header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
-    .card.inner { margin-top: 0; }
-    .stack { display: grid; gap: 10px; margin-top: 12px; }
-    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 12px; }
-    .metric { background: var(--bg); border-radius: 12px; padding: 12px; }
-    .metric span { display: block; color: var(--muted); font-size: 13px; }
-    .metric b { display: block; margin-top: 4px; font-size: 1.5rem; letter-spacing: -0.03em; }
-    .badge { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
-    .badge.scam { color: var(--scam); }
-    .badge.suspicious { color: var(--warn); }
-    .when { color: var(--muted); font-size: 13px; }
-    .pill { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border-radius: 999px; padding: 6px 10px; white-space: nowrap; }
-    .pill.watching { color: var(--quiet); background: #f4f8e8; }
-    .pill.waiting { color: var(--warn); background: #fffbeb; }
-    .connect { display: grid; gap: 8px; margin-top: 12px; }
-    .connect p { margin: 0; }
-    .connect input { font-size: 14px; }
-    form { display: grid; gap: 8px; }
-    label { font-size: 14px; color: var(--muted); }
-    input, select, button, .button { font: inherit; }
-    input, select { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink); }
-    button, .button { justify-self: start; display: inline-block; padding: 12px 18px; border: 0; border-radius: 999px; background: var(--ink); color: #fff; text-decoration: none; cursor: pointer; }
-    button.ghost, .button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
-    .note { margin: 0 0 12px; color: var(--scam); }
-    .note.ok { color: var(--quiet); }
-    @media (max-width: 700px) {
-      h1 { font-size: 1.9rem; }
-      .steps, .metrics { grid-template-columns: 1fr; }
-    }
-  </style>
-</head>
-<body>
-${body}
-${script ? `<script>${script}</script>` : ""}
-</body>
-</html>`;
-}
-
-export function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }

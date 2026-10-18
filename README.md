@@ -151,17 +151,21 @@ npm start
 npm test          # unit tests
 npm run typecheck
 npm run fixtures  # fixture set: caught, missed, false alarms
+npm run preview:site  # account website with made-up sample data, no database: http://localhost:3999/app
 ```
 
 ### HTTP routes
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/` | Website: create an account, add a parent, read metrics |
+| GET | `/` | Landing page |
 | GET | `/healthz` | Liveness |
-| POST | `/signup`, `/login`, `/logout` | Account session |
-| GET | `/app` | Parents added to the signed-in account, with metrics after they have agreed |
-| POST | `/app/parents`, `/app/parents/remove` | Add or remove a parent: name, mobile, Gmail address. Their card shows a Gmail connect link until they sign in |
+| GET, POST | `/signup`, `/login` | Account sign-up and log-in |
+| POST | `/logout` | End the session |
+| GET | `/app` | Overview for the signed-in account: status, totals, and charts across every parent (`?days=7` or `30`) |
+| GET | `/app/parents/new` | Add-a-parent form |
+| GET | `/app/parents/:id` | One parent: Gmail connect link until they sign in, then charts and warnings once they have agreed |
+| POST | `/app/parents`, `/app/parents/remove` | Add a parent (name, mobile, Gmail address, language) or remove one by id |
 | GET | `/connect/gmail?u=`, `/connect/gmail?p=` | Consent page for Gmail connect. `u` comes from onboarding, `p` from a parent card; a `p` link only connects the Gmail address typed on the card |
 | GET | `/connect/gmail/start` | Redirect to Google OAuth |
 | GET | `/connect/gmail/callback` | Store the encrypted refresh token |
@@ -218,7 +222,8 @@ src/
   core/               evidence, Gemini, notify, onboarding, family relay
   voice/              outbound call, mid-call tools, post-call webhook
   db/                 MongoDB users and cases
-scripts/              fixture runner and demo email
+  web/                account website: pages, dashboard numbers, charts
+scripts/              fixture runner, demo email, website preview
 tests/                review fixes
 docs/veyzl-log.md     audit finding, fix, and PR
 ```
