@@ -3,6 +3,7 @@ import { startInbox } from "./channels/inbox.js";
 import { authRedirect, connectPage, finishConnect } from "./email/oauth.js";
 import { startEmailWatcher } from "./email/watcher.js";
 import { addHelper, familyErrorHtml, getFamilyApi, renderFamilyPage, replyOnFamilyPage } from "./web/family.js";
+import { checkAuditToken, runCheck } from "./web/check.js";
 import { checkToolSecret, voiceTools } from "./voice/tools.js";
 import { handlePostCall } from "./voice/postCall.js";
 
@@ -123,6 +124,32 @@ const server = createServer(async (request, response) => {
       } else {
         console.error("family page failed error=" + (error as Error).name);
         sendJson(response, 500, { error: "That didn't work. Try again." });
+      }
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/check") {
+    if (!process.env.VEYZL_AUDIT_TOKEN) {
+      sendJson(response, 503, { error: "Audit route is not configured" });
+      return;
+    }
+    if (!checkAuditToken(header(request, "authorization"))) {
+      sendJson(response, 401, { error: "Unauthorized" });
+      return;
+    }
+    try {
+      const rawBody = await readRawBody(request);
+      const result = await runCheck(JSON.parse(rawBody.toString("utf8")));
+      sendJson(response, result.status, result.body);
+    } catch (error) {
+      if (error instanceof PayloadTooLargeError) {
+        sendJson(response, 413, { error: "Request body is too large" });
+      } else if (error instanceof SyntaxError) {
+        sendJson(response, 400, { error: "Invalid JSON" });
+      } else {
+        console.error("api check failed error=" + (error as Error).name);
+        sendJson(response, 500, { error: "Check failed" });
       }
     }
     return;
