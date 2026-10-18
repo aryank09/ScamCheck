@@ -37,13 +37,17 @@ export async function notifyEmail(user: User, result: AnalysisResult): Promise<v
   const id = String(caseId);
   if (result.risk_score < 40) return;
 
-  const text = alertCopy(result, false);
-  await sendText(user.phone, text);
-  await updateCase(id, { notifiedVia: "text" });
+  // A failed text must not stop the warning call below: the call is the high-risk path.
+  try {
+    await sendText(user.phone, alertCopy(result, false));
+    await updateCase(id, { notifiedVia: "text" });
+  } catch (error) {
+    console.error("alert text failed case=" + id + " error=" + (error as Error).name);
+  }
   await deliverVoice(user.phone, result.spoken_summary);
 
   if (result.risk_score < 75) return;
-  await startWarningCall({
+  const conversationId = await startWarningCall({
     toPhone: user.phone,
     caseId: id,
     language: user.language,
@@ -51,7 +55,7 @@ export async function notifyEmail(user: User, result: AnalysisResult): Promise<v
     brand: result.claimed_brand ?? undefined,
     scamType: result.scam_type,
   });
-  await updateCase(id, { notifiedVia: "call" });
+  if (conversationId) await updateCase(id, { notifiedVia: "call" });
   if (user.familyContacts.length > 0) await alertFamily(user, { scamType: result.scam_type, caseId: id });
 }
 

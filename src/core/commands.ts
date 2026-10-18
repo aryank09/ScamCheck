@@ -19,7 +19,7 @@ export async function handleCommand(user: User, text: string): Promise<string | 
     return "Forward a message and I will check it. Commands: LANGUAGE, FAMILY, HELP, STOP, PAID, CLICKED. Or just call me.";
   }
   if (command === "language") {
-    const language = languageCode(rest || "en");
+    const language = languageCode(rest, true) ?? "en";
     await saveUser(user._id, { language });
     return language === "en" && !/english|\ben\b/i.test(rest)
       ? "I don't have that language saved, so I will use English."
