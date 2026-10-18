@@ -1,0 +1,17 @@
+{
+  "id": "text-already-paid",
+  "expectHighFinding": true,
+  "expectCodes": ["LOOKALIKE_DOMAIN", "SENDER_IMPERSONATION"],
+  "message": {
+    "source": "whatsapp",
+    "from": "+15555550198",
+    "displayName": "USPS",
+    "text": "I already paid the small fee and clicked the link.",
+    "links": [
+      {
+        "visibleText": "Receipt",
+        "href": "https://usps-fee-pay.net/receipt"
+      }
+    ]
+  }
+}

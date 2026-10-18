@@ -1,0 +1,11 @@
+{
+  "id": "text-chase-screenshot",
+  "expectHighFinding": true,
+  "expectCodes": ["LOOKALIKE_DOMAIN"],
+  "message": {
+    "source": "imessage",
+    "from": "Mom",
+    "text": "See the image of the Chase alert. The screenshot says to open https://chase-login-help.net/verify tonight.",
+    "links": []
+  }
+}
