@@ -1,0 +1,21 @@
+{
+  "id": "family-a-chase-night",
+  "pair": "chase-night",
+  "expectHighFinding": true,
+  "expectCodes": ["LOOKALIKE_DOMAIN", "NEW_SENDER_URGENCY"],
+  "message": {
+    "source": "email",
+    "from": "alerts@chase.com.night-lock.net",
+    "displayName": "Chase",
+    "subject": "Account locked late at night",
+    "text": "It is late at night. Your Chase account is locked. Act now before morning. This copy was addressed to family member A.",
+    "links": [
+      {
+        "visibleText": "Review account",
+        "href": "https://chase.com.night-lock.net/login"
+      }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": false
+  }
+}
