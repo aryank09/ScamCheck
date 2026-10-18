@@ -8,6 +8,9 @@ import { tts } from "./tts.js";
 import { scrubBannedWords } from "./bannedWords.js";
 import { redactOutput } from "./guardrails.js";
 import { isQuietHours, quietHoursResumeAt } from "./quietHours.js";
+import { communityLead } from "./radar.js";
+import { waveFields } from "./waveKey.js";
+import type { ParsedMessage } from "./types.js";
 
 const FOOTER = "Automated check — it can be wrong. Verify with the company directly.";
 
@@ -33,7 +36,9 @@ export function alertCopy(result: AnalysisResult, short: boolean): string {
 }
 
 /** The only place that chooses call vs text vs silence for an email. */
-export async function notifyEmail(user: User, result: AnalysisResult): Promise<void> {
+export async function notifyEmail(user: User, result: AnalysisResult, message?: ParsedMessage): Promise<void> {
+  // Community Scam Radar: deterministic brand/domain/category, stored so other families can match it.
+  const wave = waveFields(message ?? { source: "email", text: "", links: [] }, result.claimed_brand);
   const caseId = await createCase({
     userId: user._id,
     familyGroupId: user.familyGroupId,
@@ -41,7 +46,10 @@ export async function notifyEmail(user: User, result: AnalysisResult): Promise<v
     verdict: result.verdict,
     riskScore: result.risk_score,
     scamType: result.scam_type,
-    claimedBrand: result.claimed_brand ?? undefined,
+    claimedBrand: wave.brand,
+    senderDomain: wave.senderDomain,
+    category: wave.category,
+    language: user.language,
     summary: result.case_summary,
     notifiedVia: [],
     familyAlerted: false,
@@ -50,10 +58,12 @@ export async function notifyEmail(user: User, result: AnalysisResult): Promise<v
   const id = String(caseId);
   const level = notifyLevel(result);
   if (level === "none") return;
+  const lead = await communityLead(wave, { userId: user._id, familyGroupId: user.familyGroupId }, user.language);
 
   // A failed text must not stop the warning call below: the call is the high-risk path.
   try {
-    await sendText(user.phone, alertCopy(result, false), user.messagePlatform);
+    const copy = alertCopy(result, false);
+    await sendText(user.phone, lead ? `${lead}\n\n${copy}` : copy, user.messagePlatform);
     await updateCase(id, { notifiedVia: "text" });
   } catch (error) {
     console.error("alert text failed case=" + id + " error=" + (error as Error).name);
@@ -61,7 +71,7 @@ export async function notifyEmail(user: User, result: AnalysisResult): Promise<v
   if (user.messagePlatform === "imessage") await deliverVoice(user.phone, result.spoken_summary);
 
   if (level === "text") return;
-  await deliverWarningCall(user, id, result);
+  await deliverWarningCall(user, id, result, false, lead);
   if (user.familyContacts.length > 0) await alertFamily(user, { scamType: result.scam_type, caseId: id });
 }
 
@@ -74,8 +84,11 @@ export async function deliverWarningCall(
   caseId: string,
   result: Pick<AnalysisResult, "claimed_brand" | "scam_type" | "spoken_summary">,
   force = false,
+  lead = "",
 ): Promise<void> {
-  const opening = redactOutput(scrubBannedWords(result.spoken_summary));
+  // The community line goes first: "This is the same scam that reached 6 other families this week."
+  const summary = redactOutput(scrubBannedWords(result.spoken_summary));
+  const opening = lead ? `${lead} ${summary}` : summary;
   if (!force && isQuietHours(user.quietHours)) {
     await updateCase(caseId, { callDeferredUntil: quietHoursResumeAt(user.quietHours), callOpening: opening });
     return;

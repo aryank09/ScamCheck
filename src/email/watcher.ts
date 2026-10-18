@@ -66,7 +66,7 @@ async function pollUser(user: User): Promise<void> {
           language: user.language,
           recentCaseSummaries: await recentSummaries(user),
         });
-        await notifyEmail(user, result);
+        await notifyEmail(user, result, parsed);
       }
       const alreadySeen = user.seenEmailIds.length;
       const sender = emailAddressFromHeader(parsed.from);

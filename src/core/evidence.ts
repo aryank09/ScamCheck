@@ -58,14 +58,16 @@ export function rulesFloor(findings: readonly Finding[]): number {
  * Rule checks from AGENTS.md section 8. Deterministic: no network calls.
  * Google Safe Browsing is optional and stays out of this function.
  */
-export function collectEvidence(message: ParsedMessage): Finding[] {
+/** Every link in a message: structured links, HTML anchors, and bare URLs in the text. */
+export function messageLinks(message: ParsedMessage): { text: string; links: MessageLink[] } {
   const html = message.html ? parseHtml(message.html) : undefined;
   const text = [message.text, html?.text].filter(Boolean).join("\n");
-  const links = dedupeLinks([
-    ...(message.links ?? []),
-    ...(html?.links ?? []),
-    ...linksInText(text),
-  ]);
+  const links = dedupeLinks([...(message.links ?? []), ...(html?.links ?? []), ...linksInText(text)]);
+  return { text, links };
+}
+
+export function collectEvidence(message: ParsedMessage): Finding[] {
+  const { text, links } = messageLinks(message);
   const view: ParsedMessage = { ...message, text, links };
 
   const findings: Finding[] = [];

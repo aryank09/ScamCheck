@@ -20,6 +20,11 @@ export interface CaseRecord {
   scamType: string;
   claimedBrand?: string;
   senderDomain?: string;
+  /** Community Scam Radar: deterministic scam category and the user's language. */
+  category?: string;
+  language?: string;
+  /** Seeded by scripts/seedRadar.ts. Counted only when RADAR_DEMO=on. */
+  demo?: boolean;
   summary: string;
   notifiedVia: NotifyChannel[];
   familyAlerted: boolean;
@@ -42,6 +47,8 @@ export interface NewCase {
   scamType: string;
   claimedBrand?: string;
   senderDomain?: string;
+  category?: string;
+  language?: string;
   summary: string;
   notifiedVia: NotifyChannel[];
   familyAlerted: boolean;
@@ -70,6 +77,8 @@ export async function createCase(input: NewCase): Promise<ObjectId> {
     scamType: clip(input.scamType, 80),
     claimedBrand: input.claimedBrand ? clip(input.claimedBrand, 80) : undefined,
     senderDomain: input.senderDomain ? clip(input.senderDomain, 120) : undefined,
+    category: input.category ? clip(input.category, 40) : undefined,
+    language: input.language ? clip(input.language, 8) : undefined,
     summary: storedSummary(input.summary),
     notifiedVia: input.notifiedVia,
     familyAlerted: input.familyAlerted,
@@ -143,6 +152,40 @@ export async function listCasesForUser(userId: ObjectId, days: number): Promise<
     .find({ userId, createdAt: { $gte: since } })
     .sort({ createdAt: -1 })
     .limit(200)
+    .toArray();
+}
+
+/** Fields the Community Scam Radar needs. No summaries, no user ids beyond counting families. */
+export type CommunityCase = Pick<
+  CaseRecord,
+  "_id" | "userId" | "familyGroupId" | "claimedBrand" | "senderDomain" | "category" | "language" | "createdAt"
+>;
+
+/**
+ * Flagged cases (risk >= 40) since `since` that the family did not confirm as real.
+ * Demo seed cases are included only when RADAR_DEMO=on.
+ */
+export async function listCommunityCases(
+  since: Date,
+  match: { senderDomain?: string; claimedBrand?: string; category?: string } = {},
+): Promise<CommunityCase[]> {
+  const filter: Record<string, unknown> = {
+    createdAt: { $gte: since },
+    riskScore: { $gte: 40 },
+    userAction: { $ne: "confirmed_real" },
+  };
+  if (process.env.RADAR_DEMO !== "on") filter.demo = { $ne: true };
+  if (match.senderDomain) filter.senderDomain = match.senderDomain;
+  if (match.claimedBrand) filter.claimedBrand = match.claimedBrand;
+  if (match.category) filter.category = match.category;
+  const db = await getDb();
+  return db
+    .collection<CaseRecord>("cases")
+    .find(filter, {
+      projection: { userId: 1, familyGroupId: 1, claimedBrand: 1, senderDomain: 1, category: 1, language: 1, createdAt: 1 },
+    })
+    .sort({ createdAt: -1 })
+    .limit(2000)
     .toArray();
 }
 
