@@ -64,3 +64,15 @@ describe("commands and sender addresses", () => {
     assert.equal(emailAddressFromHeader("not an address"), undefined);
   });
 });
+
+describe("quiet hours override", () => {
+  it("QUIET_HOURS=off lets a 2am warning call go out", () => {
+    const night = new Date("2026-10-18T09:00:00Z"); // 2am Pacific
+    const previous = process.env.QUIET_HOURS;
+    assert.equal(isQuietHours(undefined, night), true);
+    process.env.QUIET_HOURS = "off";
+    assert.equal(isQuietHours(undefined, night), false);
+    if (previous === undefined) delete process.env.QUIET_HOURS;
+    else process.env.QUIET_HOURS = previous;
+  });
+});

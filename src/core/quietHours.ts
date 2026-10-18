@@ -10,6 +10,8 @@ export interface QuietHours {
 export const DEFAULT_QUIET_HOURS: QuietHours = { start: "22:00", end: "07:00", tz: "America/Los_Angeles" };
 
 export function isQuietHours(hours: QuietHours | undefined, now = new Date()): boolean {
+  // QUIET_HOURS=off: call any time (hackathon rehearsals and demo).
+  if (process.env.QUIET_HOURS === "off") return false;
   const window = hours ?? DEFAULT_QUIET_HOURS;
   const minute = minuteOfDay(now, window.tz);
   const start = clockMinute(window.start);

@@ -24,6 +24,9 @@ import { isAssistantRequest, preCheck, withRefusal } from "./guardrails.js";
 import type { ParsedMessage } from "./types.js";
 
 const seen = new Set<string>();
+// A send that keeps failing (e.g. Photon SMS_CAMPAIGN_NOT_ELIGIBLE) must not block the inbox forever.
+const MAX_ATTEMPTS = 3;
+const attempts = new Map<string, number>();
 
 /**
  * True when the message is finished (handled, or already seen).
@@ -45,6 +48,14 @@ export async function handleInboundText(message: InboundText): Promise<boolean> 
   } catch (error) {
     console.error("inbound message failed error=" + (error as Error).name);
     if (progress.sent) return true;
+    const tries = (attempts.get(eventKey) ?? 0) + 1;
+    if (tries >= MAX_ATTEMPTS) {
+      // Give up on this one so later messages still get answered. It stays claimed, so it isn't retried.
+      attempts.delete(eventKey);
+      console.error(`inbound message dropped after ${tries} attempts`);
+      return true;
+    }
+    attempts.set(eventKey, tries);
     seen.delete(eventKey);
     await releaseInbound(message.platform, message.id);
     return false;
