@@ -103,8 +103,11 @@ async function requestVerdict(
     {
       model,
       input,
-      response_format: VERDICT_JSON_SCHEMA,
-      response_mime_type: "application/json",
+      response_format: {
+        type: "text",
+        mime_type: "application/json",
+        schema: VERDICT_JSON_SCHEMA,
+      },
       store: false,
       stream: false,
     },
@@ -113,7 +116,7 @@ async function requestVerdict(
   if (interaction.status === "failed" || interaction.status === "cancelled") {
     throw new Error(`gemini interaction ${interaction.status}`);
   }
-  const parsed = verdictSchema.parse(parseJsonObject(textFromInteraction(interaction.outputs)));
+  const parsed = verdictSchema.parse(parseJsonObject(textFromInteraction(interaction.output_text)));
   return {
     ...parsed,
     risk_score: Math.round(parsed.risk_score),
@@ -122,14 +125,10 @@ async function requestVerdict(
   };
 }
 
-function textFromInteraction(outputs: { type: string; text?: string }[] | undefined): string {
-  const text = (outputs ?? [])
-    .filter((output) => output.type === "text" && typeof output.text === "string")
-    .map((output) => output.text)
-    .join("")
-    .trim();
+function textFromInteraction(output: string | undefined): string {
+  const text = (output ?? "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   if (!text) throw new Error("gemini returned no text");
-  return text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  return text;
 }
 
 function parseJsonObject(text: string): unknown {

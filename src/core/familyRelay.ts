@@ -83,8 +83,8 @@ async function translate(text: string, language: string): Promise<string> {
       },
       { timeout: 10_000, maxRetries: 0 },
     );
-    const output = (interaction.outputs ?? []).find((item) => item.type === "text");
-    if (output?.type === "text" && output.text.trim()) return clip(output.text);
+    const output = interaction.output_text?.trim();
+    if (output) return clip(output);
   } catch (error) {
     console.error("translate failed error=" + (error as Error).name);
   }
