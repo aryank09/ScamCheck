@@ -1,0 +1,21 @@
+{
+  "id": "real-address-as-name",
+  "expectHighFinding": false,
+  "expectCodes": [],
+  "message": {
+    "source": "email",
+    "from": "alerts@chase.com",
+    "replyTo": "alerts@chase.com",
+    "displayName": "alerts@chase.com",
+    "subject": "Your statement is ready",
+    "text": "Your statement is ready. Review it when you have a moment.",
+    "links": [
+      {
+        "visibleText": "View statement",
+        "href": "https://news.example.com/statement"
+      }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}

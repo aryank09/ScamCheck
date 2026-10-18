@@ -8,16 +8,25 @@ export function startInbox(): void {
   if (started || !process.env.PHOTON_API_KEY || !process.env.PHOTON_PROJECT_ID) return;
   started = true;
   let since = new Date(Date.now() - 20_000).toISOString();
+  let ticking = false;
   const tick = async () => {
-    const batch = await listInboundTexts(since);
-    for (const message of batch) {
-      if (message.createdAt > since) since = message.createdAt;
-      await handleInboundText(message.id, message.phone, message.text);
+    if (ticking) return;
+    ticking = true;
+    try {
+      const batch = await listInboundTexts(since);
+      for (const message of batch) {
+        await handleInboundText(message);
+        if (message.createdAt > since) since = message.createdAt;
+      }
+    } finally {
+      ticking = false;
     }
   };
-  setInterval(() => {
+  const run = () => {
     tick().catch((error: unknown) => {
       console.error("imessage poll failed error=" + (error as Error).name);
     });
-  }, 5_000);
+  };
+  setInterval(run, 5_000);
+  run();
 }

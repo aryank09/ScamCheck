@@ -1,6 +1,7 @@
 // Photon 2.0 beta. Docs: https://photon.codes/docs/beta/api-reference/messages/send-a-message
 import { randomUUID } from "node:crypto";
 import { Photon } from "@photon-ai/api";
+import { imageMime, type AnalysisImage } from "../core/images.js";
 
 const TIMEOUT_MS = 10_000;
 
@@ -43,6 +44,7 @@ export interface InboundText {
   phone: string;
   text: string;
   createdAt: string;
+  attachmentId?: string;
 }
 
 /** Send a plain-text iMessage. Does not log the phone number or the message body. */
@@ -98,6 +100,24 @@ export async function sendVoiceNote(phone: string, audio: Buffer): Promise<void>
       content: { type: "voice", attachmentId: uploaded.id },
     },
   });
+}
+
+const MAX_IMAGE_BYTES = 4_000_000;
+
+/**
+ * Download a received photo for one analysis. Returns null when it is not an image.
+ * Throws when Photon fails, so the caller can retry. Bytes are not stored.
+ */
+export async function downloadInboundImage(attachmentId: string): Promise<AnalysisImage | null> {
+  const api = photon();
+  const project = projectId();
+  const meta = await api.projects.getAttachment({ path: { id: project, attachmentId } });
+  const mimeType = imageMime(meta.contentType);
+  if (!mimeType || meta.sizeBytes > MAX_IMAGE_BYTES) return null;
+  const downloaded = await api.projects.downloadAttachment({ path: { id: project, attachmentId } });
+  const data = await fileBytes(downloaded);
+  if (data.length === 0 || data.length > MAX_IMAGE_BYTES) return null;
+  return { mimeType, data };
 }
 
 /**
@@ -167,14 +187,31 @@ function inboundText(value: unknown): InboundText | null {
   if (typeof message.id !== "string" || typeof message.createdAt !== "string") return null;
   const content = message.content;
   if (!content || typeof content !== "object" || !("type" in content)) return null;
-  const typed = content as { type?: unknown; text?: unknown };
+  const typed = content as { type?: unknown; text?: unknown; attachmentId?: unknown };
   if (typed.type === "text" && typeof typed.text === "string" && typed.text.trim()) {
     return { id: message.id, phone: sentBy.handle, text: typed.text.trim(), createdAt: message.createdAt };
   }
-  if (typed.type === "attachment") {
-    return { id: message.id, phone: sentBy.handle, text: "The user forwarded an image.", createdAt: message.createdAt };
+  if (typed.type === "attachment" && typeof typed.attachmentId === "string" && typed.attachmentId) {
+    return {
+      id: message.id,
+      phone: sentBy.handle,
+      text: "",
+      createdAt: message.createdAt,
+      attachmentId: typed.attachmentId,
+    };
   }
   return null;
+}
+
+async function fileBytes(value: unknown): Promise<Buffer> {
+  if (Buffer.isBuffer(value)) return value;
+  if (value instanceof Uint8Array) return Buffer.from(value);
+  if (value instanceof ArrayBuffer) return Buffer.from(value);
+  if (value && typeof value === "object" && "arrayBuffer" in value && typeof value.arrayBuffer === "function") {
+    const blob = value as { arrayBuffer: () => Promise<ArrayBuffer> };
+    return Buffer.from(await blob.arrayBuffer());
+  }
+  throw new Error("attachment bytes were not a file");
 }
 
 function party(value: unknown): { kind: string; handle?: string } | null {

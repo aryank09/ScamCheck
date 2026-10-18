@@ -9,7 +9,18 @@ import { scrubBannedWords } from "./bannedWords.js";
 
 const FOOTER = "Automated check — it can be wrong. Verify with the company directly.";
 
+/** none: store the case and stay quiet. text: text plus voice note. call: those, plus a call and family alert. */
+export function notifyLevel(result: AnalysisResult): "none" | "text" | "call" {
+  if (result.modelFailed && result.rulesFloor < 75) return "none";
+  if (result.risk_score < 40) return "none";
+  if (result.risk_score < 75) return "text";
+  return "call";
+}
+
 export function alertCopy(result: AnalysisResult, short: boolean): string {
+  if (result.modelFailed && result.risk_score < 75) {
+    return scrubBannedWords("I could not finish checking this message. Please do not click links or share codes.");
+  }
   if (short || result.risk_score < 40) {
     return scrubBannedWords("I don't see red flags, but be careful.");
   }
@@ -35,7 +46,8 @@ export async function notifyEmail(user: User, result: AnalysisResult): Promise<v
     latencyMs: 0,
   });
   const id = String(caseId);
-  if (result.risk_score < 40) return;
+  const level = notifyLevel(result);
+  if (level === "none") return;
 
   // A failed text must not stop the warning call below: the call is the high-risk path.
   try {
@@ -46,7 +58,7 @@ export async function notifyEmail(user: User, result: AnalysisResult): Promise<v
   }
   await deliverVoice(user.phone, result.spoken_summary);
 
-  if (result.risk_score < 75) return;
+  if (level === "text") return;
   const conversationId = await startWarningCall({
     toPhone: user.phone,
     caseId: id,

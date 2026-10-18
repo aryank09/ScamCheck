@@ -140,10 +140,15 @@ function hostsToInspect(message: ParsedMessage, fromHost: string | null): string
   return [...hosts];
 }
 
-/** Display name and subject only. A body mention is not a claim of identity. */
+/** Display name and subject only. A body mention, or an email address, is not a claim of identity. */
 function identityClaims(message: ParsedMessage): Brand[] {
-  const haystack = [message.displayName, message.subject].filter(Boolean).join("\n");
+  const haystack = [claimText(message.displayName), claimText(message.subject)].filter(Boolean).join("\n");
   return BRANDS.filter((brand) => brand.patterns.some((pattern) => pattern.test(haystack)));
+}
+
+function claimText(value: string | undefined): string {
+  if (!value) return "";
+  return value.replace(/[^\s<>"]+@[^\s<>"]+/g, " ");
 }
 
 function brandMismatchFindings(brand: Brand, fromHost: string | null, links: MessageLink[]): Finding[] {

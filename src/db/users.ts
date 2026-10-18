@@ -104,6 +104,9 @@ export async function saveUser(
   if (Object.keys(update).length === 0) return;
   const db = await getDb();
   await db.collection("users").updateOne({ _id: id }, update);
+  if (patch.seenEmailId) {
+    await db.collection("users").updateOne({ _id: id }, [{ $set: { seenEmailIds: { $slice: ["$seenEmailIds", -500] } } }]);
+  }
 }
 
 export async function deleteUser(id: ObjectId): Promise<void> {

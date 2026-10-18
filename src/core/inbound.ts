@@ -1,45 +1,62 @@
-import { sendText } from "../channels/photon.js";
+import { downloadInboundImage, sendText, type InboundText } from "../channels/photon.js";
 import { createCase } from "../db/cases.js";
 import { createUser, findUserByFamilyPhone, findUserByPhone, normalizePhone, type User } from "../db/users.js";
 import { handleCommand } from "./commands.js";
 import { alertFamily, relayFamilyReply } from "./familyRelay.js";
+import type { AnalysisImage } from "./images.js";
 import { recentSummaries } from "./memory.js";
-import { alertCopy, deliverVoice } from "./notify.js";
+import { alertCopy, deliverVoice, notifyLevel } from "./notify.js";
 import { advanceOnboarding, currentPrompt } from "./onboarding.js";
 import { analyze } from "./analyze.js";
 import type { ParsedMessage } from "./types.js";
 
 const seen = new Set<string>();
 
-export async function handleInboundText(messageId: string, phone: string, text: string): Promise<void> {
-  if (seen.has(messageId)) return;
-  seen.add(messageId);
-  const normalized = normalizePhone(phone);
+export async function handleInboundText(message: InboundText): Promise<void> {
+  if (seen.has(message.id)) return;
+  const normalized = normalizePhone(message.phone);
 
   const family = await findUserByFamilyPhone(normalized);
   if (family && family.user.phone !== normalized) {
-    const reply = await relayFamilyReply(family.user, family.contact, text);
+    const reply = message.text.trim()
+      ? await relayFamilyReply(family.user, family.contact, message.text)
+      : "Send that as a text and I will pass it on.";
     await sendText(normalized, reply);
+    seen.add(message.id);
     return;
+  }
+
+  let image: AnalysisImage | undefined;
+  if (message.attachmentId) {
+    const downloaded = await downloadInboundImage(message.attachmentId);
+    if (!downloaded) {
+      await sendText(normalized, "Send the message as text, or forward a photo of it.");
+      seen.add(message.id);
+      return;
+    }
+    image = downloaded;
   }
 
   const user = (await findUserByPhone(normalized)) ?? (await createUser(normalized));
-  const command = user.onboardingStep === "done" ? await handleCommand(user, text) : await stopOnly(user, text);
+  const command = user.onboardingStep === "done" ? await handleCommand(user, message.text) : await stopOnly(user, message.text);
   if (command) {
     await sendText(normalized, command);
+    seen.add(message.id);
     return;
   }
 
-  const forwarded = looksForwarded(text);
-  if (forwarded) await checkForward(user, normalized, text);
+  const forwarded = Boolean(image) || looksForwarded(message.text);
+  if (forwarded) await checkForward(user, normalized, message.text, image);
 
   if (user.onboardingStep !== "done") {
-    const prompt = forwarded ? currentPrompt(user) : await advanceOnboarding(user, text);
+    const prompt = forwarded ? currentPrompt(user) : await advanceOnboarding(user, message.text);
     if (prompt) await sendText(normalized, prompt);
+    seen.add(message.id);
     return;
   }
 
   if (!forwarded) await sendText(normalized, "Forward a message and I will check it, or send HELP.");
+  seen.add(message.id);
 }
 
 async function stopOnly(user: User, text: string): Promise<string | null> {
@@ -47,7 +64,12 @@ async function stopOnly(user: User, text: string): Promise<string | null> {
   return handleCommand(user, text);
 }
 
-async function checkForward(user: User, phone: string, text: string): Promise<void> {
+async function checkForward(
+  user: User,
+  phone: string,
+  text: string,
+  image?: AnalysisImage,
+): Promise<void> {
   await sendText(phone, "Checking…");
   const message: ParsedMessage = {
     source: "imessage",
@@ -55,13 +77,18 @@ async function checkForward(user: User, phone: string, text: string): Promise<vo
     text,
     links: [],
   };
-  const result = await analyze(message, {
-    language: user.language,
-    recentCaseSummaries: await recentSummaries(user),
-  });
-  const low = result.risk_score < 40;
-  await sendText(phone, alertCopy(result, low));
-  if (!low) await deliverVoice(phone, result.spoken_summary);
+  const result = await analyze(
+    message,
+    {
+      language: user.language,
+      recentCaseSummaries: await recentSummaries(user),
+    },
+    image,
+  );
+  if (image) image.data.fill(0);
+  const level = notifyLevel(result);
+  await sendText(phone, alertCopy(result, level === "none"));
+  if (level !== "none") await deliverVoice(phone, result.spoken_summary);
   const caseId = await createCase({
     userId: user._id,
     familyGroupId: user.familyGroupId,
@@ -75,7 +102,7 @@ async function checkForward(user: User, phone: string, text: string): Promise<vo
     familyAlerted: false,
     latencyMs: 0,
   });
-  if (result.risk_score >= 75 && user.familyContacts.length > 0) {
+  if (level === "call" && user.familyContacts.length > 0) {
     await alertFamily(user, { scamType: result.scam_type, caseId: String(caseId) });
   }
 }
