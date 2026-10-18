@@ -23,6 +23,10 @@ export interface ParentLink {
   userId?: ObjectId;
   /** Set when the parent replies ALLOW. Until then the account sees no summaries. */
   approvedAt?: Date;
+  /** Photon id of the ALLOW text, so the account page can show carrier status. */
+  inviteMessageId?: string;
+  inviteStatus?: string;
+  inviteFailure?: string;
   createdAt: Date;
 }
 
@@ -157,6 +161,21 @@ export async function addParentLink(
   }
 }
 
+export async function saveParentInvite(
+  accountId: ObjectId,
+  phone: string,
+  invite: { messageId?: string; status: string; failure?: string },
+): Promise<void> {
+  await readyAccountStore();
+  const set: Record<string, unknown> = { inviteStatus: invite.status, inviteCheckedAt: new Date() };
+  if (invite.messageId) set.inviteMessageId = invite.messageId;
+  if (invite.failure) set.inviteFailure = invite.failure;
+  const update: Record<string, unknown> = { $set: set };
+  if (!invite.failure) update.$unset = { inviteFailure: "" };
+  const db = await getDb();
+  await db.collection("parentLinks").updateOne({ accountId, phone }, update);
+}
+
 export async function removeParentLink(accountId: ObjectId, phone: string): Promise<boolean> {
   await readyAccountStore();
   const db = await getDb();
@@ -224,6 +243,9 @@ function toLink(doc: Record<string, unknown> & { _id: ObjectId }): ParentLink {
   if (typeof doc.relation === "string" && doc.relation) link.relation = doc.relation;
   if (doc.userId instanceof ObjectId) link.userId = doc.userId;
   if (doc.approvedAt instanceof Date) link.approvedAt = doc.approvedAt;
+  if (typeof doc.inviteMessageId === "string") link.inviteMessageId = doc.inviteMessageId;
+  if (typeof doc.inviteStatus === "string") link.inviteStatus = doc.inviteStatus;
+  if (typeof doc.inviteFailure === "string") link.inviteFailure = doc.inviteFailure;
   return link;
 }
 

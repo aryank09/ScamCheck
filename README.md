@@ -161,7 +161,7 @@ npm run fixtures  # fixture set: caught, missed, false alarms
 | GET | `/healthz` | Liveness |
 | POST | `/signup`, `/login`, `/logout` | Account session |
 | GET | `/app` | Parents added to the signed-in account, with metrics after they have agreed |
-| POST | `/app/parents`, `/app/parents/remove` | Add or remove a parent number. Adding does not text them |
+| POST | `/app/parents`, `/app/parents/remove` | Add or remove a parent number. Adding sends one SMS; the card shows Photon delivery status |
 | GET | `/connect/gmail?u=` | Consent page for Gmail connect |
 | GET | `/connect/gmail/start` | Redirect to Google OAuth |
 | GET | `/connect/gmail/callback` | Store the encrypted refresh token |
