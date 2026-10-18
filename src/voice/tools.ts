@@ -5,6 +5,8 @@ import { timingSafeEqual } from "node:crypto";
 import { findUserByPhone } from "../db/users.js";
 import { createCase, findCaseById, updateCase, listRecentCases } from "../db/cases.js";
 import { alertFamily } from "../core/familyRelay.js";
+import { communityMatch } from "../core/radar.js";
+import { scamCategory } from "../core/waveKey.js";
 
 interface ToolBody {
   caller_id?: string;
@@ -62,13 +64,30 @@ export const voiceTools: Record<string, (body: ToolBody) => Promise<object>> = {
       when: c.createdAt,
     }));
     const pending = recent.find((c) => c.mine && c.verdict !== "no_red_flags") ?? null;
+    // Community Scam Radar: lets the agent answer "how many people got this?" with a real number.
+    const flagged = pending ? cases.find((c) => String(c._id) === pending.case_id) : undefined;
+    const community = flagged
+      ? await communityMatch(
+          { brand: flagged.claimedBrand, senderDomain: flagged.senderDomain, category: flagged.category ?? "other" },
+          { userId: user._id, familyGroupId: user.familyGroupId },
+        ).catch(() => null)
+      : null;
 
     return {
       known_user: true,
       name: user.displayName ?? null,
       language: user.language,
       has_family_contact: user.familyContacts.length > 0,
-      pending_flagged_item: pending,
+      pending_flagged_item: pending
+        ? {
+            ...pending,
+            community: community
+              ? community.tier === "same"
+                ? `Same scam reached ${community.families} other families this week.`
+                : `Similar ${community.brand} scams are going around this week.`
+              : "No other families have reported this one.",
+          }
+        : null,
       recent_cases: recent,
     };
   },
@@ -94,6 +113,9 @@ export const voiceTools: Record<string, (body: ToolBody) => Promise<object>> = {
       verdict: body.verdict ?? "suspicious",
       riskScore: body.risk_score ?? 50,
       scamType: body.scam_type ?? "unknown",
+      // Call reports have no domain, so they only feed the radar's "similar" tier.
+      category: scamCategory(`${body.scam_type ?? ""} ${body.summary ?? ""}`),
+      language: user.language,
       summary: body.summary ?? "",
       notifiedVia: ["call"],
       familyAlerted: false,
