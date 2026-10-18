@@ -56,7 +56,7 @@ const TEXT_FAILURES: Record<string, string> = {
   send_failed: "The text did not send.",
 };
 
-/** Plain status for the ALLOW text. Reload the page to ask Photon again. */
+/** Plain status for the heads-up text. Reload the page to ask Photon again. */
 export function textStatusLabel(status?: string, failure?: string): string {
   if (!status) return "SMS not sent";
   if (status === "delivered") return "SMS delivered";
