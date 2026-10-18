@@ -102,3 +102,22 @@ describe("family dashboard", () => {
     else process.env.PUBLIC_BASE_URL = previous;
   });
 });
+
+describe("family page safety", () => {
+  it("uses random 32-hex tokens", async () => {
+    const { newToken } = await import("../src/db/users.js");
+    const a = newToken();
+    const b = newToken();
+    assert.match(a, /^[a-f0-9]{32}$/);
+    assert.notEqual(a.slice(0, 30), b.slice(0, 30));
+  });
+
+  it("only lets a saved helper's name speak to the parent", async () => {
+    const { replyFrom } = await import("../src/web/family.js");
+    const parent = user();
+    assert.equal(replyFrom({ from: "aryan" }, parent), "Aryan");
+    assert.equal(replyFrom({ from: "Chase Bank" }, parent), "your family page");
+    assert.equal(replyFrom({ from: "" }, parent), "your family page");
+    assert.equal(replyFrom({}, parent), "your family page");
+  });
+});

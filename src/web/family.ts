@@ -1,3 +1,4 @@
+import { sendText } from "../channels/photon.js";
 import { relayFamilyReply } from "../core/familyRelay.js";
 import { scrubBannedWords } from "../core/bannedWords.js";
 import { listCasesForUser, type CaseRecord, type NotifyChannel } from "../db/cases.js";
@@ -119,6 +120,21 @@ export async function addHelper(token: string, payload: unknown): Promise<Family
   });
   user.familyContacts = familyContacts;
   if (!user.familyGroupId) user.familyGroupId = user._id.toHexString();
+  // AGENTS.md §14: alerts only go to contacts the user chose. A link holder added this one,
+  // so tell the parent and give them a one-word undo.
+  if (!exists) {
+    const last4 = contact.phone.replace(/\D/g, "").slice(-4);
+    const who = contact.relation ? `${contact.name} (${contact.relation})` : contact.name;
+    try {
+      await sendText(
+        user.phone,
+        `${who}, number ending ${last4}, was added from your family page and will get your scam alerts. ` +
+          `If that's wrong, reply REMOVE ${last4}.`,
+      );
+    } catch (error) {
+      console.error("helper notice failed error=" + (error as Error).name);
+    }
+  }
   return { status: 200, body: await snapshot(user) };
 }
 
@@ -127,7 +143,7 @@ export async function replyOnFamilyPage(token: string, payload: unknown): Promis
   if (!user) return { status: 404, body: { error: "This family link is not valid." } };
   const text = replyText(payload);
   if (!text) return { status: 400, body: { error: "Write a message to pass on." } };
-  const from = replyFrom(payload);
+  const from = replyFrom(payload, user);
   const cases = await listCasesForUser(user._id, 7);
   const open = cases.find((item) => item.verdict !== "no_red_flags" && !item.familyResponse);
   if (!open) return { status: 409, body: { error: "There is no open warning to reply to." } };
@@ -182,11 +198,17 @@ function replyText(payload: unknown): string {
   return typeof text === "string" ? text.trim().slice(0, 500) : "";
 }
 
-function replyFrom(payload: unknown): string {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "Family";
+/**
+ * The parent hears "Message from <name>", so the name must be a helper they already have.
+ * Free text would let anyone with the link speak as "Son" or "Chase Bank".
+ */
+export function replyFrom(payload: unknown, user: User): string {
+  const fallback = "your family page";
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return fallback;
   const from = (payload as { from?: unknown }).from;
-  if (typeof from !== "string" || !from.trim()) return "Family";
-  return from.trim().slice(0, 80);
+  if (typeof from !== "string") return fallback;
+  const helper = user.familyContacts.find((item) => item.name.trim().toLowerCase() === from.trim().toLowerCase());
+  return helper ? helper.name : fallback;
 }
 
 function noticePage(message: string): string {
@@ -251,8 +273,8 @@ function documentPage(body: string): string {
     .panel { padding: 16px; }
     form { display: grid; gap: 8px; }
     label { font-size: 14px; color: var(--muted); }
-    input, textarea, button { font: inherit; }
-    input, textarea {
+    input, textarea, select, button { font: inherit; }
+    input, textarea, select {
       width: 100%;
       padding: 12px 12px;
       border: 1px solid var(--line);
@@ -298,12 +320,12 @@ let noteOk = false;
 
 document.addEventListener("focusin", function (event) {
   const target = event.target;
-  if (target && target.matches && target.matches("input, textarea")) editing = true;
+  if (target && target.matches && target.matches("input, textarea, select")) editing = true;
 });
 document.addEventListener("focusout", function () {
   setTimeout(function () {
     const active = document.activeElement;
-    if (!active || !active.matches || !active.matches("input, textarea")) editing = false;
+    if (!active || !active.matches || !active.matches("input, textarea, select")) editing = false;
   }, 150);
 });
 
@@ -406,7 +428,16 @@ function render(data) {
     panel.append(el("p", "lede", "This goes to " + data.parentName + " as a text and a voice note, on the latest open warning."));
     const form = document.createElement("form");
     form.id = "reply-form";
-    field(form, "from", "Your name", "Aryan");
+    // Sender is picked from saved helpers; the server rejects any other name.
+    const fromLabel = el("label", "", "From");
+    fromLabel.htmlFor = "from";
+    const fromSelect = document.createElement("select");
+    fromSelect.id = "from";
+    data.helpers.forEach(function (helper) {
+      fromSelect.append(new Option(helper.relation ? helper.name + " (" + helper.relation + ")" : helper.name, helper.name));
+    });
+    fromSelect.append(new Option("Family page", ""));
+    form.append(fromLabel, fromSelect);
     const replyLabel = el("label", "", "Message");
     replyLabel.htmlFor = "reply-text";
     const replyBox = document.createElement("textarea");

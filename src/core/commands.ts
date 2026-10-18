@@ -10,16 +10,25 @@ const URGENT =
   "Call your bank right away using the number on your card. Do not use a number from the message. I will let your family contact know.";
 
 export async function handleCommand(user: User, text: string): Promise<string | null> {
-  const match = text.trim().match(/^(language|family|help|stop|paid|clicked|dashboard)\b[:\s]*(.*)$/i);
+  const match = text.trim().match(/^(language|family|help|stop|paid|clicked|dashboard|remove)\b[:\s]*(.*)$/i);
   if (!match?.[1]) return null;
   const command = match[1].toLowerCase();
   const rest = (match[2] ?? "").trim();
 
   if (command === "help") {
-    return "Forward a message and I will check it. Commands: LANGUAGE, FAMILY, HELP, STOP, PAID, CLICKED, DASHBOARD. Or just call me.";
+    return "Forward a message and I will check it. Commands: LANGUAGE, FAMILY, REMOVE, HELP, STOP, PAID, CLICKED, DASHBOARD. Or just call me.";
   }
   if (command === "dashboard") {
     return dashboardReply(user);
+  }
+  if (command === "remove") {
+    // REMOVE 4567: drop the helper whose number ends in those digits.
+    const digits = rest.replace(/\D/g, "");
+    if (digits.length < 4) return "Send REMOVE and the last 4 digits of their number.";
+    const keep = user.familyContacts.filter((item) => !item.phone.replace(/\D/g, "").endsWith(digits));
+    if (keep.length === user.familyContacts.length) return "I couldn't find a helper with that number.";
+    await saveUser(user._id, { familyContacts: keep });
+    return "Removed. They won't get your alerts anymore.";
   }
   if (command === "language") {
     const language = languageCode(rest, true) ?? "en";

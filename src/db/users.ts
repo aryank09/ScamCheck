@@ -1,5 +1,13 @@
+import { randomBytes } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { getDb } from "./mongo.js";
+
+// Link tokens are the only lock on the Gmail-connect and family pages, so they must be
+// unguessable. ObjectIds are not: same-process ids differ only in a counter.
+const TOKEN_RE = /^[a-f0-9]{32}$/;
+export function newToken(): string {
+  return randomBytes(16).toString("hex");
+}
 
 export interface FamilyContact {
   name: string;
@@ -39,18 +47,28 @@ export async function findUserByPhone(phone: string): Promise<User | null> {
   if (!normalized) return null;
   const db = await getDb();
   const doc = await db.collection("users").findOne({ phone: normalized });
-  return doc ? toUser(doc) : null;
+  return doc ? upgradeTokens(toUser(doc)) : null;
+}
+
+/** One-time swap of old ObjectId-style tokens for random ones. Runs when the user next texts in. */
+async function upgradeTokens(user: User): Promise<User> {
+  const patch: { connectToken?: string; familyToken?: string } = {};
+  if (user.connectToken && !TOKEN_RE.test(user.connectToken)) patch.connectToken = newToken();
+  if (user.familyToken && !TOKEN_RE.test(user.familyToken)) patch.familyToken = newToken();
+  if (!patch.connectToken && !patch.familyToken) return user;
+  await saveUser(user._id, patch);
+  return { ...user, ...patch };
 }
 
 export async function findUserByConnectToken(token: string): Promise<User | null> {
-  if (!token) return null;
+  if (!TOKEN_RE.test(token)) return null;
   const db = await getDb();
   const doc = await db.collection("users").findOne({ connectToken: token });
   return doc ? toUser(doc) : null;
 }
 
 export async function findUserByFamilyToken(token: string): Promise<User | null> {
-  if (!/^[a-f0-9]{24}$/i.test(token)) return null;
+  if (!TOKEN_RE.test(token)) return null;
   const db = await getDb();
   const doc = await db.collection("users").findOne({ familyToken: token });
   return doc ? toUser(doc) : null;
@@ -58,8 +76,8 @@ export async function findUserByFamilyToken(token: string): Promise<User | null>
 
 /** Create the family-page token once. Existing tokens are left alone. */
 export async function ensureFamilyToken(user: User): Promise<string> {
-  if (user.familyToken) return user.familyToken;
-  const token = new ObjectId().toHexString();
+  if (user.familyToken && TOKEN_RE.test(user.familyToken)) return user.familyToken;
+  const token = newToken();
   await saveUser(user._id, { familyToken: token });
   user.familyToken = token;
   return token;
@@ -109,8 +127,8 @@ export async function createUser(phone: string): Promise<User> {
     familyContacts: [],
     onboardingStep: "language" as const,
     seenEmailIds: [],
-    connectToken: new ObjectId().toHexString(),
-    familyToken: new ObjectId().toHexString(),
+    connectToken: newToken(),
+    familyToken: newToken(),
     emailsChecked: 0,
     createdAt: new Date(),
   };
