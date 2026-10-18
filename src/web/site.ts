@@ -38,8 +38,8 @@ const LANGUAGE_LABELS: Record<string, string> = {
 };
 
 const NOTICES: Record<string, string> = {
-  added: "Added. SMS status is on their card. Reload this page to check delivery.",
-  watching: "Added. We texted them. SMS status is on their card. Summaries show here once they reply ALLOW.",
+  added: "Added. iMessage status is on their card. Reload this page to check delivery.",
+  watching: "Added. We texted them on iMessage. Status is on their card. Summaries show here once they reply ALLOW.",
   removed: "Removed from your account.",
 };
 
@@ -163,7 +163,7 @@ async function addParent(account: Account, fields: Record<string, string>): Prom
   const result = await addParentLink(account._id, { ...parsed.value, userId: user?._id });
   if (result === "duplicate") return { status: 303, redirect: "/app?error=duplicate" };
   const watching = parentIsWatching(user?.consentAcceptedAt);
-  // SMS goes out so the account can see whether the number actually received a text.
+  // iMessage goes out so the account can see whether the number actually received a text.
   // Summaries stay hidden until the parent replies ALLOW.
   await saveParentInvite(account._id, parsed.value.phone, await requestAllow(account.name, parsed.value.phone));
   return { status: 303, redirect: "/app?notice=" + (watching ? "watching" : "added") };
@@ -178,7 +178,6 @@ async function requestAllow(
       phone,
       `${name} asked to see your ScamCheck warning summaries on the ScamCheck website. ` +
         "Reply ALLOW to share them. If you don't know them, ignore this.",
-      "sms",
     );
     return {
       messageId: sent.id,
@@ -188,7 +187,7 @@ async function requestAllow(
   } catch (error) {
     console.error("allow request failed error=" + (error as Error).name);
     const message = error instanceof Error ? error.message : "";
-    const failure = /is not set|No sms agent/.test(message) ? "not_configured" : "send_failed";
+    const failure = /is not set|No imessage agent/.test(message) ? "not_configured" : "send_failed";
     return { status: "failed", failure };
   }
 }
@@ -241,7 +240,7 @@ function dashboardPage(account: Account, cards: ParentCard[], notice: string, er
         </div>
         <form method="post" action="/logout"><button class="ghost" type="submit">Log out</button></form>
       </div>
-      <p class="lede">Add a parent by name and mobile number. We send one SMS so you can see if it was delivered. Reload this page to check again. Summaries appear after they reply ALLOW.</p>
+      <p class="lede">Add a parent by name and mobile number. We send one iMessage so you can see if it was delivered. Reload this page to check again. Summaries appear after they reply ALLOW.</p>
       ${banner(notice, error)}
       <section class="panel">
         <h2>Add a parent</h2>
@@ -276,8 +275,8 @@ function renderCard(card: ParentCard): string {
   const status = card.watching
     ? `<span class="pill watching">Watching</span>`
     : `<span class="pill waiting">Waiting for them</span>`;
-  const sms = `<p class="meta">${escapeHtml(textStatusLabel(card.link.inviteStatus, card.link.inviteFailure))}</p>`;
-  const check = inviteStillOpen(card.link.inviteStatus) ? `<p class="fine"><a href="/app">Check SMS status</a></p>` : "";
+  const delivery = `<p class="meta">${escapeHtml(textStatusLabel(card.link.inviteStatus, card.link.inviteFailure))}</p>`;
+  const check = inviteStillOpen(card.link.inviteStatus) ? `<p class="fine"><a href="/app">Check iMessage status</a></p>` : "";
   const body = card.watching && card.snapshot
     ? metricsBlock(card.snapshot)
     : `<p class="lede">Summaries show here after they agree with ScamCheck and reply ALLOW.</p>`;
@@ -286,7 +285,7 @@ function renderCard(card: ParentCard): string {
       <div><h3>${escapeHtml(who)}</h3><p class="meta">···${escapeHtml(last4)} · ${escapeHtml(language)}</p></div>
       ${status}
     </header>
-    ${sms}
+    ${delivery}
     ${check}
     ${body}
     <form method="post" action="/app/parents/remove">

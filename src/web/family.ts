@@ -130,7 +130,6 @@ export async function addHelper(token: string, payload: unknown): Promise<Family
         user.phone,
         `${who}, number ending ${last4}, was added from your family page and will get your scam alerts. ` +
           `If that's wrong, reply REMOVE ${last4}.`,
-        user.messagePlatform,
       );
     } catch (error) {
       console.error("helper notice failed error=" + (error as Error).name);

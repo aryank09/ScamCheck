@@ -18,8 +18,7 @@ export async function alertFamily(
     `ScamCheck: ${name} received a likely scam (${alert.scamType}). ` +
     `They were told not to click or reply. Reply here and I'll pass your message to ${name}.`;
   for (const contact of user.familyContacts) {
-    // iMessage until this contact has texted us on SMS; SMS depends on carrier registration.
-    await sendText(contact.phone, text, contact.messagePlatform ?? "imessage");
+    await sendText(contact.phone, text);
   }
   if (alert.caseId) await updateCase(alert.caseId, { familyAlerted: true });
 }
@@ -38,8 +37,8 @@ export async function relayFamilyReply(
 
   const translated = await translate(text, user.language);
   const note = scrubBannedWords(`Message from ${contact.name}: ${translated}`);
-  await sendText(user.phone, note, user.messagePlatform);
-  const audio = user.messagePlatform === "imessage" ? await tts(note) : null;
+  await sendText(user.phone, note);
+  const audio = await tts(note);
   if (audio) {
     try {
       await sendVoiceNote(user.phone, audio);
@@ -52,7 +51,7 @@ export async function relayFamilyReply(
     familyResponse: `${contact.name}: ${translated}`,
     userAction: confirmed ? "confirmed_real" : undefined,
   });
-  if (confirmed) await sendText(user.phone, `${contact.name} says this one is real.`, user.messagePlatform);
+  if (confirmed) await sendText(user.phone, `${contact.name} says this one is real.`);
   return `I passed that to ${user.displayName?.trim() || "them"}.`;
 }
 

@@ -49,24 +49,24 @@ const TEXT_FAILURES: Record<string, string> = {
   message_rejected: "The carrier rejected it.",
   message_expired: "The carrier dropped it before delivery.",
   message_delivery_failed: "The carrier did not deliver it.",
-  sender_registration_required: "SMS is not registered on this line yet.",
+  sender_registration_required: "This line cannot text yet.",
   sender_not_authorized: "This line is not allowed to text that number.",
-  sender_unavailable: "The SMS line is unavailable.",
-  not_configured: "SMS is not set up.",
+  sender_unavailable: "The text line is unavailable.",
+  not_configured: "iMessage is not set up.",
   send_failed: "The text did not send.",
 };
 
 /** Plain status for the ALLOW text. Reload the page to ask Photon again. */
 export function textStatusLabel(status?: string, failure?: string): string {
-  if (!status) return "SMS not sent";
-  if (status === "delivered") return "SMS delivered";
-  if (status === "accepted") return "SMS accepted by the carrier";
-  if (status === "dispatched") return "SMS sent, waiting on the carrier";
+  if (!status) return "iMessage not sent";
+  if (status === "delivered") return "iMessage delivered";
+  if (status === "accepted") return "iMessage accepted";
+  if (status === "dispatched") return "iMessage sent";
   if (status === "failed") {
     const detail = failure ? TEXT_FAILURES[failure] : undefined;
-    return detail ? `SMS failed. ${detail}` : "SMS failed.";
+    return detail ? `iMessage failed. ${detail}` : "iMessage failed.";
   }
-  return `SMS status: ${status}`;
+  return `iMessage status: ${status}`;
 }
 
 /** Carrier state can still change. Delivered and failed are final. */

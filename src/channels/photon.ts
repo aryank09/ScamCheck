@@ -8,6 +8,11 @@ export type MessagePlatform = "imessage" | "sms";
 
 let client: Photon | undefined;
 
+/** Test hook so a text send can be asserted without calling Photon. */
+export function usePhotonForTests(next: Photon | undefined): void {
+  client = next;
+}
+
 function photon(): Photon {
   const key = process.env.PHOTON_API_KEY;
   if (!key) throw new Error("PHOTON_API_KEY is not set");
@@ -56,10 +61,15 @@ export interface OutboundText {
   failure?: string;
 }
 
-/** Send plain text on the selected Photon channel. Does not log phone numbers or message bodies. */
-export async function sendText(phone: string, text: string, platform: MessagePlatform = "imessage"): Promise<OutboundText> {
+/**
+ * Send plain text on iMessage.
+ * The Photon SMS number is for voice calls only, so this never opens an SMS conversation.
+ * Does not log phone numbers or message bodies.
+ */
+export async function sendText(phone: string, text: string): Promise<OutboundText> {
   const api = photon();
   const project = projectId();
+  const platform = "imessage" as const;
   const convo = await conversation(api, project, phone, platform);
   const sent = await api.projects.sendMessage({
     path: { id: project },

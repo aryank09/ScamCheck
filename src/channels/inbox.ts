@@ -3,7 +3,7 @@ import { handleInboundText } from "../core/inbound.js";
 
 let started = false;
 
-/** Poll Photon for received iMessages and SMS. Beta docs use listMessages, not an invented webhook body. */
+/** Poll Photon for received iMessages and SMS. Replies always go out on iMessage. */
 export function startInbox(): void {
   if (started || !process.env.PHOTON_API_KEY || !process.env.PHOTON_PROJECT_ID) return;
   started = true;

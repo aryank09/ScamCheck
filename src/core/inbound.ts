@@ -5,8 +5,6 @@ import {
   findUserByFamilyPhone,
   findUserByPhone,
   normalizePhone,
-  saveUser,
-  setFamilyContactPlatform,
   type User,
 } from "../db/users.js";
 import { dashboardReply, handleCommand } from "./commands.js";
@@ -30,18 +28,14 @@ export async function handleInboundText(message: InboundText): Promise<void> {
   const family = await findUserByFamilyPhone(normalized);
   if (family && family.user.phone !== normalized) {
     if (/^dashboard\b/i.test(message.text.trim())) {
-      await sendText(normalized, await dashboardReply(family.user), message.platform);
+      await sendText(normalized, await dashboardReply(family.user));
       seen.add(eventKey);
       return;
-    }
-    if (family.contact.messagePlatform !== message.platform) {
-      await setFamilyContactPlatform(family.user._id, normalized, message.platform);
-      family.contact.messagePlatform = message.platform;
     }
     const reply = message.text.trim()
       ? await relayFamilyReply(family.user, family.contact, message.text)
       : "Send that as a text and I will pass it on.";
-    await sendText(normalized, reply, message.platform);
+    await sendText(normalized, reply);
     seen.add(eventKey);
     return;
   }
@@ -50,21 +44,17 @@ export async function handleInboundText(message: InboundText): Promise<void> {
   if (message.attachmentId) {
     const downloaded = await downloadInboundImage(message.attachmentId);
     if (!downloaded) {
-      await sendText(normalized, "Send the message as text, or forward a photo of it.", message.platform);
+      await sendText(normalized, "Send the message as text, or forward a photo of it.");
       seen.add(eventKey);
       return;
     }
     image = downloaded;
   }
 
-  const user = (await findUserByPhone(normalized)) ?? (await createUser(normalized, message.platform));
-  if (user.messagePlatform !== message.platform) {
-    user.messagePlatform = message.platform;
-    await saveUser(user._id, { messagePlatform: message.platform });
-  }
+  const user = (await findUserByPhone(normalized)) ?? (await createUser(normalized));
   const command = user.onboardingStep === "done" ? await handleCommand(user, message.text) : await stopOnly(user, message.text);
   if (command) {
-    await sendText(normalized, command, message.platform);
+    await sendText(normalized, command);
     seen.add(eventKey);
     return;
   }
@@ -76,12 +66,12 @@ export async function handleInboundText(message: InboundText): Promise<void> {
 
   if (user.onboardingStep !== "done") {
     const prompt = forwarded ? currentPrompt(user) : await advanceOnboarding(user, message.text);
-    if (prompt) await sendText(normalized, prompt, message.platform);
+    if (prompt) await sendText(normalized, prompt);
     seen.add(eventKey);
     return;
   }
 
-  if (!forwarded) await sendText(normalized, "Forward a message and I will check it, or send HELP.", message.platform);
+  if (!forwarded) await sendText(normalized, "Forward a message and I will check it, or send HELP.");
   seen.add(eventKey);
 }
 
@@ -101,10 +91,10 @@ async function checkForward(
   const guard = preCheck(text, /https?:\/\//i.test(text));
   if (guard) {
     if (image) image.data.fill(0);
-    await sendText(phone, guard.reply, platform);
+    await sendText(phone, guard.reply);
     return;
   }
-  await sendText(phone, "Checking…", platform);
+  await sendText(phone, "Checking…");
   const message: ParsedMessage = {
     source: platform,
     from: phone,
@@ -122,8 +112,8 @@ async function checkForward(
   if (image) image.data.fill(0);
   const level = notifyLevel(result);
   const copy = alertCopy(result, level === "none");
-  await sendText(phone, isAssistantRequest(text) ? withRefusal(copy, level === "none") : copy, platform);
-  if (level !== "none" && platform === "imessage") await deliverVoice(phone, result.spoken_summary);
+  await sendText(phone, isAssistantRequest(text) ? withRefusal(copy, level === "none") : copy);
+  if (level !== "none") await deliverVoice(phone, result.spoken_summary);
   const caseId = await createCase({
     userId: user._id,
     familyGroupId: user.familyGroupId,

@@ -64,7 +64,7 @@ export async function handlePostCall(rawBody: Buffer | string, signature: string
 
   try {
     // followup_text is LLM-written, so it gets the same banned-words pass as analyze.ts.
-    await sendText(user.phone, `${scrubBannedWords(text)}\n\n${FOOTER}`, user.messagePlatform);
+    await sendText(user.phone, `${scrubBannedWords(text)}\n\n${FOOTER}`);
   } catch (err) {
     console.error(`post-call follow-up failed conv=${event.data.conversation_id} error=${(err as Error).name}`);
   }

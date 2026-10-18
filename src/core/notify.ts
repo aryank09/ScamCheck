@@ -52,12 +52,12 @@ export async function notifyEmail(user: User, result: AnalysisResult): Promise<v
 
   // A failed text must not stop the warning call below: the call is the high-risk path.
   try {
-    await sendText(user.phone, alertCopy(result, false), user.messagePlatform);
+    await sendText(user.phone, alertCopy(result, false));
     await updateCase(id, { notifiedVia: "text" });
   } catch (error) {
     console.error("alert text failed case=" + id + " error=" + (error as Error).name);
   }
-  if (user.messagePlatform === "imessage") await deliverVoice(user.phone, result.spoken_summary);
+  await deliverVoice(user.phone, result.spoken_summary);
 
   if (level === "text") return;
   const conversationId = await startWarningCall({
