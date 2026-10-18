@@ -1,19 +1,10 @@
 # ScamCheck ElevenLabs agent
 
-Paste the **First message** and **System prompt** below into the ElevenLabs agent. Then set up the dynamic-variable placeholders and tools listed underneath.
+Paste the **First message** and **System prompt** below into the ElevenLabs agent, then set up the tools listed underneath.
 
-## Dynamic variables
+## No custom dynamic variables
 
-Set these placeholders in the agent's dashboard. Inbound calls use the placeholders. Outbound calls overwrite them from `src/voice/outbound.ts`.
-
-| Variable | Placeholder (inbound) | Outbound value |
-|---|---|---|
-| `call_type` | `inbound` | `outbound` |
-| `user_name` | `unknown` | user's display name |
-| `user_language` | `unknown` | e.g. `ur`, `es`, `en` |
-| `brand` | `none` | claimed brand, e.g. `Chase` |
-| `scam_type` | `none` | e.g. `fake Chase login` |
-| `case_id` | `none` | case `_id` |
+Don't use `{{custom}}` variables in the prompt or tools. Dashboard placeholders only apply in test mode: on a real **inbound** call nothing supplies them, and ElevenLabs refuses the call ("Missing required dynamic variables"). Context comes from `get_user_context` instead. Outbound calls open with the warning through the first-message override (`src/voice/outbound.ts`). Only built-in `system__*` variables are safe.
 
 ## Tools (webhook, POST, JSON body)
 
@@ -22,8 +13,8 @@ Every tool sends the header `x-scamcheck-secret`. Make it a **Secret** whose val
 | Tool | URL | Body params |
 |---|---|---|
 | `get_user_context` | `{PUBLIC_BASE_URL}/voice/tools/get_user_context` | `caller_id` = dyn var `system__caller_id`, `called_number` = dyn var `system__called_number` |
-| `record_case` | `{PUBLIC_BASE_URL}/voice/tools/record_case` | `caller_id`, `called_number`, `case_id` (dyn vars); LLM-filled: `verdict` (scam / suspicious / no_red_flags), `risk_score` (0-100), `scam_type`, `summary` (1 English sentence, no personal data), `user_action` (paid / clicked / ignored / none) |
-| `alert_family` | `{PUBLIC_BASE_URL}/voice/tools/alert_family` | `caller_id`, `called_number`, `case_id` (dyn vars); LLM-filled: `scam_type` |
+| `record_case` | `{PUBLIC_BASE_URL}/voice/tools/record_case` | `caller_id`, `called_number` (system dyn vars); LLM-filled: `case_id` (from get_user_context's pending item, or `none`), `verdict` (scam / suspicious / no_red_flags), `risk_score` (0-100), `scam_type`, `summary` (1 English sentence, no personal data), `user_action` (paid / clicked / ignored / none) |
+| `alert_family` | `{PUBLIC_BASE_URL}/voice/tools/alert_family` | `caller_id`, `called_number` (system dyn vars); LLM-filled: `case_id` (as above), `scam_type` |
 
 `caller_id` and `called_number` both go to the server, which looks up whichever one is a ScamCheck user. That covers both inbound calls (the user is the caller) and outbound calls (the user is the called number).
 
@@ -36,7 +27,7 @@ Add one string field, `followup_text`, with this description: "A 1–2 sentence 
 ## First message
 
 ```
-Hi, this is ScamCheck.
+Hi, this is ScamCheck. How can I help?
 ```
 
 ## System prompt
@@ -44,25 +35,21 @@ Hi, this is ScamCheck.
 ```
 You are ScamCheck, a calm, patient helper for parents and older adults.
 
-This call is: {{call_type}}.
-Saved name: {{user_name}}. Saved language: {{user_language}}.
-
 At the start of every call, call get_user_context. It returns the person's
 name, language, recent cases (their own and their family's), and any pending
-flagged item.
+flagged item. Use the case_id from that pending item when you call
+record_case or alert_family about it; otherwise pass "none".
 Speak in their saved language. If none, ask which language they prefer, then
 continue in it.
 
-OUTBOUND (call_type is "outbound" — you called them about a flagged item):
-- The item: {{scam_type}}, pretending to be {{brand}}. If brand is "none", don't name a brand.
-- If scam_type says "already paid" or "already clicked", skip the warning and go straight to
+OUTBOUND (your first message was already the scam warning — you called them):
+- Don't repeat the whole warning. Check they understood, answer questions
+  briefly, and tell them you'll text the details.
+- If the pending item says "already paid" or "already clicked", go straight to
   the urgent path below: call their bank now using the number on their card.
-- Say why you called in one or two sentences, e.g.:
-  "You got an email pretending to be {{brand}}. Please don't click it or
-  reply. I'll text you the details."
-- Answer questions briefly. Offer to let their family contact know.
+- Offer to let their family contact know.
 
-INBOUND (call_type is "inbound" — they called you):
+INBOUND (they called you; your first message was the greeting):
 - If get_user_context shows a recently flagged item, ask: "Are you calling
   about the <brand> message I warned you about?"
 - Otherwise ask at most 2 short questions (who contacted them, what they
