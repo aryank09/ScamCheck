@@ -6,6 +6,7 @@ import type { AnalysisResult } from "./types.js";
 import { alertFamily } from "./familyRelay.js";
 import { tts } from "./tts.js";
 import { scrubBannedWords } from "./bannedWords.js";
+import { redactOutput } from "./guardrails.js";
 
 const FOOTER = "Automated check — it can be wrong. Verify with the company directly.";
 
@@ -27,7 +28,7 @@ export function alertCopy(result: AnalysisResult, short: boolean): string {
   const icon = result.risk_score >= 75 ? "🚨" : "⚠️";
   const label = result.verdict === "scam" || result.risk_score >= 75 ? "This is a scam" : "This looks suspicious";
   const flags = result.red_flags.slice(0, 3).map((flag) => `- ${scrubBannedWords(flag)}`).join("\n");
-  return scrubBannedWords(`${icon} ${label}\n${flags}\n${result.action}\n\n${FOOTER}`);
+  return redactOutput(scrubBannedWords(`${icon} ${label}\n${flags}\n${result.action}\n\n${FOOTER}`));
 }
 
 /** The only place that chooses call vs text vs silence for an email. */
@@ -73,7 +74,7 @@ export async function notifyEmail(user: User, result: AnalysisResult): Promise<v
 }
 
 export async function deliverVoice(phone: string, spoken: string): Promise<void> {
-  const audio = await tts(scrubBannedWords(spoken));
+  const audio = await tts(redactOutput(scrubBannedWords(spoken)));
   if (!audio) return;
   try {
     await sendVoiceNote(phone, audio);
