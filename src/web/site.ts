@@ -4,27 +4,24 @@ import {
   addParentLink,
   closeSession,
   createAccount,
+  ensureParentConnectToken,
   findAccountByEmail,
   listParentLinks,
   openSession,
   removeParentLink,
-  saveParentInvite,
   type Account,
   type ParentLink,
 } from "../db/accounts.js";
 import { checkPassword } from "../db/accounts.js";
 import { findUserByPhone } from "../db/users.js";
-import { messageStatus, sendText } from "../channels/photon.js";
 import { familyView, type FamilySnapshot } from "./family.js";
 import {
   clearSessionCookie,
-  inviteStillOpen,
   parentIsWatching,
   parseParent,
   parseSignup,
   readCookie,
   sessionCookie,
-  textStatusLabel,
 } from "./accountForms.js";
 
 const MAX_PARENTS = 8;
@@ -38,8 +35,8 @@ const LANGUAGE_LABELS: Record<string, string> = {
 };
 
 const NOTICES: Record<string, string> = {
-  added: "Added. SMS status is on their card. Reload this page to check delivery.",
-  watching: "Added. Their summaries are on this page. We texted them a heads-up; SMS status is on their card.",
+  added: "Added. Send them the Gmail link on their card. Email checks start once they sign in with Google.",
+  connected: "Added. Their Gmail is already connected, so their summaries are on this page.",
   removed: "Removed from your account.",
 };
 
@@ -100,12 +97,12 @@ async function home(account: Account | null): Promise<SiteResult> {
       `<main>
         <p class="eyebrow">ScamCheck</p>
         <h1>Keep an eye on your parents.</h1>
-        <p class="lede">Create an account, add a parent by name and mobile number, and read warning summaries here. The original emails and messages stay off this page.</p>
+        <p class="lede">Create an account, add a parent with their Gmail address, and read warning summaries here. Their emails stay off this page.</p>
         <p class="actions">${actions}</p>
         <div class="steps">
           <article><b>1</b><h2>Create an account</h2><p>Your login is for you, the person who wants the summaries.</p></article>
-          <article><b>2</b><h2>Add a parent</h2><p>Enter their name and mobile number, the same way you would add a child to a family account.</p></article>
-          <article><b>3</b><h2>Read the metrics</h2><p>Emails checked, warnings, calls, and family replies appear after that number has agreed with ScamCheck.</p></article>
+          <article><b>2</b><h2>Add a parent</h2><p>Enter their name, mobile number, and Gmail address, then send them their Gmail link.</p></article>
+          <article><b>3</b><h2>Read the metrics</h2><p>Emails checked, warnings, and calls appear once they connect Gmail.</p></article>
         </div>
         <p class="fine"><a href="/radar">See the Community Scam Radar →</a> Scams going around ScamCheck families this week.</p>
         <p class="fine">Automated check. It can be wrong. Verify with the company directly.</p>
@@ -157,42 +154,17 @@ async function dashboard(account: Account, url: URL): Promise<SiteResult> {
 async function addParent(account: Account, fields: Record<string, string>): Promise<SiteResult> {
   const parsed = parseParent(fields);
   if (!parsed.ok) return { status: 303, redirect: "/app?error=" + parentErrorCode(parsed.error) };
+  if (!parsed.value.email) return { status: 303, redirect: "/app?error=email" };
   const links = await listParentLinks(account._id);
   if (links.some((link) => link.phone === parsed.value.phone)) return { status: 303, redirect: "/app?error=duplicate" };
   if (links.length >= MAX_PARENTS) return { status: 303, redirect: "/app?error=limit" };
   const user = await findUserByPhone(parsed.value.phone);
   const result = await addParentLink(account._id, { ...parsed.value, userId: user?._id });
   if (result === "duplicate") return { status: 303, redirect: "/app?error=duplicate" };
-  const watching = parentIsWatching(user?.consentAcceptedAt);
   // No confirmation step (team decision 10-17-26): adding a parent shows their summaries right away.
   // ponytail: anyone who knows a consenting parent's number can see their summaries; restore a
-  // parent-side approval before real launch. The heads-up text keeps the parent informed.
-  await saveParentInvite(account._id, parsed.value.phone, await notifyParent(account.name, parsed.value.phone));
-  return { status: 303, redirect: "/app?notice=" + (watching ? "watching" : "added") };
-}
-
-async function notifyParent(
-  name: string,
-  phone: string,
-): Promise<{ messageId?: string; status: string; failure?: string }> {
-  try {
-    const sent = await sendText(
-      phone,
-      `${name} added you on the ScamCheck website and can see your scam warning summaries there ` +
-        "(never your messages).",
-      "sms",
-    );
-    return {
-      messageId: sent.id,
-      status: sent.status,
-      ...(sent.failure ? { failure: sent.failure } : {}),
-    };
-  } catch (error) {
-    console.error("parent heads-up failed error=" + (error as Error).name);
-    const message = error instanceof Error ? error.message : "";
-    const failure = /is not set|No sms agent/.test(message) ? "not_configured" : "send_failed";
-    return { status: "failed", failure };
-  }
+  // parent-side approval before real launch.
+  return { status: 303, redirect: "/app?notice=" + (user?.gmail ? "connected" : "added") };
 }
 
 async function removeParent(account: Account, fields: Record<string, string>): Promise<SiteResult> {
@@ -205,31 +177,23 @@ async function removeParent(account: Account, fields: Record<string, string>): P
 interface ParentCard {
   link: ParentLink;
   watching: boolean;
+  gmailConnected: boolean;
+  connectUrl?: string;
   snapshot?: FamilySnapshot;
 }
 
 async function parentCard(link: ParentLink): Promise<ParentCard> {
-  const current = await refreshInvite(link);
-  const user = await findUserByPhone(current.phone);
-  if (!user || !parentIsWatching(user.consentAcceptedAt)) return { link: current, watching: false };
-  return { link: current, watching: true, snapshot: familyView(user, await listCasesForUser(user._id, 7)) };
+  const user = await findUserByPhone(link.phone);
+  const gmailConnected = Boolean(user?.gmail);
+  const connectUrl = gmailConnected ? undefined : gmailLink(await ensureParentConnectToken(link));
+  const card: ParentCard = { link, watching: false, gmailConnected, connectUrl };
+  if (!user || !parentIsWatching(user.consentAcceptedAt)) return card;
+  return { ...card, watching: true, snapshot: familyView(user, await listCasesForUser(user._id, 7)) };
 }
 
-async function refreshInvite(link: ParentLink): Promise<ParentLink> {
-  if (!link.inviteMessageId || !inviteStillOpen(link.inviteStatus)) return link;
-  try {
-    const latest = await messageStatus(link.inviteMessageId);
-    if (latest.status === link.inviteStatus && latest.failure === link.inviteFailure) return link;
-    await saveParentInvite(link.accountId, link.phone, {
-      messageId: link.inviteMessageId,
-      status: latest.status,
-      failure: latest.failure,
-    });
-    return { ...link, inviteStatus: latest.status, inviteFailure: latest.failure };
-  } catch (error) {
-    console.error("message status failed error=" + (error as Error).name);
-    return link;
-  }
+function gmailLink(token: string): string | undefined {
+  const base = (process.env.PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
+  return base ? `${base}/connect/gmail?p=${token}` : undefined;
 }
 
 function dashboardPage(account: Account, cards: ParentCard[], notice: string, error: string): string {
@@ -243,15 +207,17 @@ function dashboardPage(account: Account, cards: ParentCard[], notice: string, er
         </div>
         <form method="post" action="/logout"><button class="ghost" type="submit">Log out</button></form>
       </div>
-      <p class="lede">Add a parent by name and mobile number. We text them a heads-up so you can see if it was delivered. Their summaries show once they're using ScamCheck.</p>
+      <p class="lede">Add a parent with their mobile number and Gmail address, then send them their Gmail link. Once they sign in with Google, ScamCheck checks their new emails and their warnings show here.</p>
       ${banner(notice, error)}
       <section class="panel">
         <h2>Add a parent</h2>
         <form method="post" action="/app/parents">
           <label for="parent-name">Name</label>
           <input id="parent-name" name="name" maxlength="80" autocomplete="name" required>
-          <label for="parent-phone">Mobile number</label>
+          <label for="parent-phone">Mobile number, for warning calls</label>
           <input id="parent-phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+1 206 555 0100" required>
+          <label for="parent-email">Their Gmail address</label>
+          <input id="parent-email" name="email" type="email" maxlength="200" autocomplete="off" placeholder="mom@gmail.com" required>
           <label for="parent-language">Language they prefer</label>
           <select id="parent-language" name="language">
             <option value="en">English</option>
@@ -277,19 +243,16 @@ function renderCard(card: ParentCard): string {
   const language = card.snapshot?.languageLabel ?? LANGUAGE_LABELS[card.link.language] ?? card.link.language;
   const status = card.watching
     ? `<span class="pill watching">Watching</span>`
-    : `<span class="pill waiting">Waiting for them</span>`;
-  const sms = `<p class="meta">${escapeHtml(textStatusLabel(card.link.inviteStatus, card.link.inviteFailure))}</p>`;
-  const check = inviteStillOpen(card.link.inviteStatus) ? `<p class="fine"><a href="/app">Check SMS status</a></p>` : "";
+    : `<span class="pill waiting">Waiting for Gmail</span>`;
   const body = card.watching && card.snapshot
     ? metricsBlock(card.snapshot)
-    : `<p class="lede">Summaries show here once they start using ScamCheck.</p>`;
+    : `<p class="lede">Summaries show here once they connect Gmail.</p>`;
   return `<article class="card parent">
     <header>
       <div><h3>${escapeHtml(who)}</h3><p class="meta">···${escapeHtml(last4)} · ${escapeHtml(language)}</p></div>
       ${status}
     </header>
-    ${sms}
-    ${check}
+    ${card.gmailConnected ? "" : connectBlock(card)}
     ${body}
     <form method="post" action="/app/parents/remove">
       <input type="hidden" name="name" value="${escapeHtml(card.link.parentName)}">
@@ -297,6 +260,19 @@ function renderCard(card: ParentCard): string {
       <button class="ghost" type="submit">Remove</button>
     </form>
   </article>`;
+}
+
+function connectBlock(card: ParentCard): string {
+  if (!card.connectUrl) return `<p class="meta">Gmail: the connect link is not ready yet.</p>`;
+  const mailbox = card.link.email ? escapeHtml(card.link.email) : "their Gmail";
+  const name = escapeHtml(card.link.parentName);
+  const url = escapeHtml(card.connectUrl);
+  return `<div class="connect">
+      <p class="meta">Gmail: waiting for ${mailbox} to connect</p>
+      <p>Send ${name} this link, or open it with them. They sign in with Google and allow read-only access. ScamCheck can read their email but cannot send or delete it.</p>
+      <input readonly value="${url}" aria-label="Gmail link for ${name}">
+      <p class="fine"><a href="${url}">Open the link</a></p>
+    </div>`;
 }
 
 function metricsBlock(snapshot: FamilySnapshot): string {
@@ -340,12 +316,14 @@ function dashboardError(code: string): string {
   if (code === "missing") return "That parent is not on your account.";
   if (code === "name") return "Enter their name.";
   if (code === "phone") return "Enter a real mobile number.";
+  if (code === "email") return "Enter their Gmail address.";
   if (code === "language") return "Choose English, Spanish, Urdu, or Hindi.";
   return "";
 }
 
 function parentErrorCode(error: string): string {
   if (error.includes("mobile")) return "phone";
+  if (error.includes("Gmail")) return "email";
   if (error.includes("Choose")) return "language";
   return "name";
 }
@@ -457,6 +435,9 @@ export function page(title: string, body: string, head = ""): string {
     .pill { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border-radius: 999px; padding: 6px 10px; white-space: nowrap; }
     .pill.watching { color: var(--quiet); background: #f4f8e8; }
     .pill.waiting { color: var(--warn); background: #fffbeb; }
+    .connect { display: grid; gap: 8px; margin-top: 12px; }
+    .connect p { margin: 0; }
+    .connect input { font-size: 14px; }
     form { display: grid; gap: 8px; }
     label { font-size: 14px; color: var(--muted); }
     input, select, button, .button { font: inherit; }

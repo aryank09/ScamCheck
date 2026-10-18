@@ -1,9 +1,11 @@
 import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { getDb } from "./mongo.js";
+import { newToken } from "./users.js";
 
 const SESSION_MS = 14 * 24 * 60 * 60 * 1000;
 const TOKEN_RE = /^[a-f0-9]{64}$/;
+const CONNECT_TOKEN_RE = /^[a-f0-9]{32}$/;
 
 export interface Account {
   _id: ObjectId;
@@ -20,11 +22,11 @@ export interface ParentLink {
   parentName: string;
   language: string;
   relation?: string;
+  /** Gmail address the account typed. Only this mailbox can connect through the link. */
+  email?: string;
+  /** Secret in this parent's Gmail connect link. */
+  connectToken?: string;
   userId?: ObjectId;
-  /** Photon id of the heads-up text, so the account page can show carrier status. */
-  inviteMessageId?: string;
-  inviteStatus?: string;
-  inviteFailure?: string;
   createdAt: Date;
 }
 
@@ -137,7 +139,7 @@ export async function listParentLinksByPhone(phone: string): Promise<ParentLink[
 
 export async function addParentLink(
   accountId: ObjectId,
-  parent: { name: string; phone: string; language: string; relation?: string; userId?: ObjectId },
+  parent: { name: string; phone: string; language: string; relation?: string; email?: string; userId?: ObjectId },
 ): Promise<"added" | "duplicate"> {
   await readyAccountStore();
   const doc: Record<string, unknown> = {
@@ -145,9 +147,11 @@ export async function addParentLink(
     phone: parent.phone,
     parentName: parent.name,
     language: parent.language,
+    connectToken: newToken(),
     createdAt: new Date(),
   };
   if (parent.relation) doc.relation = parent.relation;
+  if (parent.email) doc.email = parent.email;
   if (parent.userId) doc.userId = parent.userId;
   const db = await getDb();
   try {
@@ -159,19 +163,23 @@ export async function addParentLink(
   }
 }
 
-export async function saveParentInvite(
-  accountId: ObjectId,
-  phone: string,
-  invite: { messageId?: string; status: string; failure?: string },
-): Promise<void> {
+export async function findParentLinkByConnectToken(token: string): Promise<ParentLink | null> {
+  if (!CONNECT_TOKEN_RE.test(token)) return null;
   await readyAccountStore();
-  const set: Record<string, unknown> = { inviteStatus: invite.status, inviteCheckedAt: new Date() };
-  if (invite.messageId) set.inviteMessageId = invite.messageId;
-  if (invite.failure) set.inviteFailure = invite.failure;
-  const update: Record<string, unknown> = { $set: set };
-  if (!invite.failure) update.$unset = { inviteFailure: "" };
   const db = await getDb();
-  await db.collection("parentLinks").updateOne({ accountId, phone }, update);
+  const doc = await db.collection("parentLinks").findOne({ connectToken: token });
+  return doc ? toLink(doc) : null;
+}
+
+/** Links saved before Gmail connect have no token yet. */
+export async function ensureParentConnectToken(link: ParentLink): Promise<string> {
+  if (link.connectToken && CONNECT_TOKEN_RE.test(link.connectToken)) return link.connectToken;
+  const token = newToken();
+  await readyAccountStore();
+  const db = await getDb();
+  await db.collection("parentLinks").updateOne({ _id: link._id }, { $set: { connectToken: token } });
+  link.connectToken = token;
+  return token;
 }
 
 export async function removeParentLink(accountId: ObjectId, phone: string): Promise<boolean> {
@@ -213,6 +221,7 @@ async function buildIndexes(): Promise<void> {
   await db.collection("sessions").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
   await db.collection("parentLinks").createIndex({ accountId: 1, phone: 1 }, { unique: true });
   await db.collection("parentLinks").createIndex({ phone: 1 });
+  await db.collection("parentLinks").createIndex({ connectToken: 1 }, { sparse: true });
 }
 
 function isDuplicate(error: unknown): boolean {
@@ -239,10 +248,9 @@ function toLink(doc: Record<string, unknown> & { _id: ObjectId }): ParentLink {
     createdAt: doc.createdAt instanceof Date ? doc.createdAt : new Date(0),
   };
   if (typeof doc.relation === "string" && doc.relation) link.relation = doc.relation;
+  if (typeof doc.email === "string" && doc.email) link.email = doc.email;
+  if (typeof doc.connectToken === "string") link.connectToken = doc.connectToken;
   if (doc.userId instanceof ObjectId) link.userId = doc.userId;
-  if (typeof doc.inviteMessageId === "string") link.inviteMessageId = doc.inviteMessageId;
-  if (typeof doc.inviteStatus === "string") link.inviteStatus = doc.inviteStatus;
-  if (typeof doc.inviteFailure === "string") link.inviteFailure = doc.inviteFailure;
   return link;
 }
 

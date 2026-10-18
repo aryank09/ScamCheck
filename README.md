@@ -161,8 +161,8 @@ npm run fixtures  # fixture set: caught, missed, false alarms
 | GET | `/healthz` | Liveness |
 | POST | `/signup`, `/login`, `/logout` | Account session |
 | GET | `/app` | Parents added to the signed-in account, with metrics after they have agreed |
-| POST | `/app/parents`, `/app/parents/remove` | Add or remove a parent number. Adding sends one SMS; the card shows Photon delivery status |
-| GET | `/connect/gmail?u=` | Consent page for Gmail connect |
+| POST | `/app/parents`, `/app/parents/remove` | Add or remove a parent: name, mobile, Gmail address. Their card shows a Gmail connect link until they sign in |
+| GET | `/connect/gmail?u=`, `/connect/gmail?p=` | Consent page for Gmail connect. `u` comes from onboarding, `p` from a parent card; a `p` link only connects the Gmail address typed on the card |
 | GET | `/connect/gmail/start` | Redirect to Google OAuth |
 | GET | `/connect/gmail/callback` | Store the encrypted refresh token |
 | POST | `/voice/tools/:name` | `get_user_context`, `record_case`, `alert_family` |
@@ -198,7 +198,7 @@ Copy `.env.example`. Do not commit `.env`.
 | `EMAIL_POLL_SECONDS` | Inbox poll interval, default 20 |
 | `DEMO_GMAIL_REFRESH_TOKEN` | `scripts/demoSend.ts` only; needs `gmail.insert`, not the app's read-only scope |
 
-Gmail OAuth is a testing-mode Google Cloud app. Add the demo account as a test user.
+Gmail OAuth is a testing-mode Google Cloud app. Add the demo account, and every parent Gmail added on the website, as a test user. `GOOGLE_REDIRECT_URI` is `{PUBLIC_BASE_URL}/connect/gmail/callback` and must also be listed as an authorized redirect URI on the OAuth client.
 
 Voice setup follows the Photon ElevenLabs cookbook: an SMS number (voice does not run on a shared iMessage line), a Photon voice profile with SIP, the number imported into ElevenLabs as a SIP trunk, and the agent assigned to that number. Inbound destination is ElevenLabs; outbound uses the Photon SIP address with TLS.
 

@@ -1,15 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { checkPassword, hashPassword } from "../src/db/accounts.js";
+import { parentConsentHtml, sameMailbox } from "../src/email/oauth.js";
 import {
   clearSessionCookie,
-  inviteStillOpen,
   parentIsWatching,
   parseParent,
   parseSignup,
   readCookie,
   sessionCookie,
-  textStatusLabel,
 } from "../src/web/accountForms.js";
 import { handleSite } from "../src/web/site.js";
 
@@ -32,20 +31,34 @@ describe("website accounts", () => {
     assert.equal(parseParent({ name: "Rashid", phone: "2065550100", language: "fr" }).ok, false);
   });
 
-  it("describes Photon SMS delivery without the phone number", () => {
-    assert.equal(textStatusLabel(undefined), "SMS not sent");
-    assert.equal(textStatusLabel("dispatched"), "SMS sent, waiting on the carrier");
-    assert.equal(textStatusLabel("accepted"), "SMS accepted by the carrier");
-    assert.equal(textStatusLabel("delivered"), "SMS delivered");
-    assert.equal(
-      textStatusLabel("failed", "recipient_invalid"),
-      "SMS failed. That number does not look like a mobile number.",
-    );
-    assert.equal(textStatusLabel("failed", "not_configured"), "SMS failed. SMS is not set up.");
-    assert.equal(textStatusLabel("failed"), "SMS failed.");
-    assert.equal(inviteStillOpen("accepted"), true);
-    assert.equal(inviteStillOpen("delivered"), false);
-    assert.equal(inviteStillOpen("failed"), false);
+  it("keeps the parent's Gmail address", () => {
+    const parsed = parseParent({ name: "Rashid", phone: "2065550100", language: "ur", email: " Rashid.Khan@Gmail.com " });
+    assert.equal(parsed.ok && parsed.value.email, "rashid.khan@gmail.com");
+    const bad = parseParent({ name: "Rashid", phone: "2065550100", language: "ur", email: "not-an-email" });
+    assert.equal(bad.ok, false);
+    assert.match(bad.ok ? "" : bad.error, /Gmail/);
+  });
+
+  it("only lets the typed Gmail address connect", () => {
+    assert.equal(sameMailbox("Rashid.Khan+news@googlemail.com", "rashidkhan@gmail.com"), true);
+    assert.equal(sameMailbox("rashid@gmail.com", "someone.else@gmail.com"), false);
+    assert.equal(sameMailbox("r.khan@example.com", "rkhan@example.com"), false);
+  });
+
+  it("shows who asked and escapes their name on the Gmail consent page", () => {
+    const html = parentConsentHtml({
+      accountName: "<b>Aryan</b>",
+      email: "rashid@gmail.com",
+      phoneLast4: "0100",
+      language: "es",
+      startUrl: "/connect/gmail/start?p=abc",
+    });
+    assert.match(html, /&lt;b&gt;Aryan&lt;\/b&gt; te agregó a ScamCheck/);
+    assert.doesNotMatch(html, /<b>Aryan<\/b>/);
+    assert.match(html, /rashid@gmail\.com/);
+    assert.match(html, /···0100/);
+    assert.match(html, /href="\/connect\/gmail\/start\?p=abc"/);
+    assert.match(html, /Conectar Gmail/);
   });
 
   it("hides metrics until the parent has agreed", () => {
