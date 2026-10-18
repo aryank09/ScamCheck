@@ -103,3 +103,18 @@ describe("community line", () => {
     assert.match(communityLine({ tier: "similar", brand: "IRS" }, "fr"), /pretending to be IRS/, "unknown language falls back to English");
   });
 });
+
+describe("radar page html", () => {
+  it("escapes attacker-controlled domains and refreshes itself", async () => {
+    const { radarPageHtml } = await import("../src/web/radar.js");
+    const html = radarPageHtml({
+      families: 1,
+      scams: 1,
+      languages: ["ur"],
+      waves: [{ brand: "Chase", domain: '<script>x</script>.net', category: "account_locked", families: 1, active: false, languages: ["ur"], firstSeen: new Date().toISOString(), lastSeen: new Date().toISOString() }],
+    });
+    assert.equal(html.includes("<script>x"), false);
+    assert.match(html, /http-equiv="refresh" content="10"/);
+    assert.match(html, /Community Scam Radar/);
+  });
+});
