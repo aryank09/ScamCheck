@@ -190,7 +190,7 @@ Copy `.env.example`. Do not commit `.env`.
 | `ELEVENLABS_AGENT_ID`, `ELEVENLABS_PHONE_NUMBER_ID` | Outbound warning calls |
 | `ELEVENLABS_WEBHOOK_SECRET` | Post-call signature |
 | `VOICE_TOOL_SECRET` | Mid-call tool auth |
-| `PHOTON_PROJECT_ID`, `PHOTON_PROJECT_SECRET`, `PHOTON_API_KEY` | Photon iMessage and SMS send/receive |
+| `PHOTON_PROJECT_ID`, `PHOTON_API_KEY` | Photon 2.0 beta iMessage and SMS send/receive. The client sends `Authorization: Bearer` with `PHOTON_API_KEY`. `PHOTON_PROJECT_SECRET` is unused by this server. |
 | `PHOTON_AGENT_USER_ID` | Optional iMessage agent user; otherwise discovered from the project |
 | `PHOTON_SMS_AGENT_USER_ID` | Optional SMS agent user; otherwise discovered from the project |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | Gmail OAuth |
