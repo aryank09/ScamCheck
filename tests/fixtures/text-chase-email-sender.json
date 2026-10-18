@@ -2,7 +2,7 @@
   "id": "text-chase-email-sender",
   "expectHighFinding": true,
   "expectCodes": [
-    "SENDER_IMPERSONATION"
+    "LOOKALIKE_DOMAIN"
   ],
   "message": {
     "source": "whatsapp",

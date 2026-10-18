@@ -2,7 +2,7 @@
   "id": "text-usps-phone",
   "expectHighFinding": true,
   "expectCodes": [
-    "SENDER_IMPERSONATION"
+    "LOOKALIKE_DOMAIN"
   ],
   "message": {
     "source": "imessage",

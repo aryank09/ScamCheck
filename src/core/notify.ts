@@ -1,0 +1,66 @@
+import { sendText, sendVoiceNote } from "../channels/photon.js";
+import { createCase, updateCase } from "../db/cases.js";
+import type { User } from "../db/users.js";
+import { startWarningCall } from "../voice/outbound.js";
+import type { AnalysisResult } from "./types.js";
+import { alertFamily } from "./familyRelay.js";
+import { tts } from "./tts.js";
+import { scrubBannedWords } from "./bannedWords.js";
+
+const FOOTER = "Automated check — it can be wrong. Verify with the company directly.";
+
+export function alertCopy(result: AnalysisResult, short: boolean): string {
+  if (short || result.risk_score < 40) {
+    return scrubBannedWords("I don't see red flags, but be careful.");
+  }
+  const icon = result.risk_score >= 75 ? "🚨" : "⚠️";
+  const label = result.verdict === "scam" || result.risk_score >= 75 ? "This is a scam" : "This looks suspicious";
+  const flags = result.red_flags.slice(0, 3).map((flag) => `- ${scrubBannedWords(flag)}`).join("\n");
+  return scrubBannedWords(`${icon} ${label}\n${flags}\n${result.action}\n\n${FOOTER}`);
+}
+
+/** The only place that chooses call vs text vs silence for an email. */
+export async function notifyEmail(user: User, result: AnalysisResult): Promise<void> {
+  const caseId = await createCase({
+    userId: user._id,
+    familyGroupId: user.familyGroupId,
+    source: "email",
+    verdict: result.verdict,
+    riskScore: result.risk_score,
+    scamType: result.scam_type,
+    claimedBrand: result.claimed_brand ?? undefined,
+    summary: result.case_summary,
+    notifiedVia: [],
+    familyAlerted: false,
+    latencyMs: 0,
+  });
+  const id = String(caseId);
+  if (result.risk_score < 40) return;
+
+  const text = alertCopy(result, false);
+  await sendText(user.phone, text);
+  await updateCase(id, { notifiedVia: "text" });
+  await deliverVoice(user.phone, result.spoken_summary);
+
+  if (result.risk_score < 75) return;
+  await startWarningCall({
+    toPhone: user.phone,
+    caseId: id,
+    language: user.language,
+    userName: user.displayName,
+    brand: result.claimed_brand ?? undefined,
+    scamType: result.scam_type,
+  });
+  await updateCase(id, { notifiedVia: "call" });
+  if (user.familyContacts.length > 0) await alertFamily(user, { scamType: result.scam_type, caseId: id });
+}
+
+export async function deliverVoice(phone: string, spoken: string): Promise<void> {
+  const audio = await tts(scrubBannedWords(spoken));
+  if (!audio) return;
+  try {
+    await sendVoiceNote(phone, audio);
+  } catch (error) {
+    console.error("voice note failed error=" + (error as Error).name);
+  }
+}

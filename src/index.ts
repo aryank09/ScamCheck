@@ -1,4 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { startInbox } from "./channels/inbox.js";
+import { authRedirect, connectPage, finishConnect } from "./email/oauth.js";
+import { startEmailWatcher } from "./email/watcher.js";
 import { checkToolSecret, voiceTools } from "./voice/tools.js";
 import { handlePostCall } from "./voice/postCall.js";
 
@@ -36,6 +39,31 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/healthz")) {
     sendJson(response, 200, { service: "ScamCheck", ok: true });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/connect/gmail") {
+    const result = await connectPage(url.searchParams.get("u") ?? "");
+    response.writeHead(result.status, { "content-type": "text/html; charset=utf-8" });
+    response.end(result.html);
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/connect/gmail/start") {
+    const target = authRedirect(url.searchParams.get("u") ?? "");
+    if (!target) {
+      sendJson(response, 503, { error: "Gmail connect is not configured" });
+      return;
+    }
+    response.writeHead(302, { location: target });
+    response.end();
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/connect/gmail/callback") {
+    const result = await finishConnect(url.searchParams.get("code") ?? "", url.searchParams.get("state") ?? "");
+    response.writeHead(result.status, { "content-type": "text/html; charset=utf-8" });
+    response.end(result.html);
     return;
   }
 
@@ -98,4 +126,6 @@ const server = createServer(async (request, response) => {
 
 server.listen(port, "0.0.0.0", () => {
   console.info("ScamCheck API listening on port " + port);
+  startInbox();
+  if (process.env.MONGODB_URI && process.env.GOOGLE_CLIENT_ID) startEmailWatcher();
 });

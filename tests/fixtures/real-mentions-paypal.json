@@ -1,0 +1,15 @@
+{
+  "id": "real-mentions-paypal",
+  "expectHighFinding": false,
+  "expectCodes": [],
+  "message": {
+    "source": "email",
+    "from": "friend@gmail.com",
+    "displayName": "Sam",
+    "subject": "Dinner",
+    "text": "I paid with PayPal for dinner. See you at 7.",
+    "links": [],
+    "authenticationResults": "mx.google.com; dkim=pass; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}
