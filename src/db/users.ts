@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { getDb } from "./mongo.js";
+import type { MessagePlatform } from "../channels/photon.js";
 
 // Link tokens are the only lock on the Gmail-connect and family pages, so they must be
 // unguessable. ObjectIds are not: same-process ids differ only in a counter.
@@ -13,6 +14,7 @@ export interface FamilyContact {
   name: string;
   phone: string;
   relation?: string;
+  messagePlatform?: MessagePlatform;
 }
 
 export type OnboardingStep = "language" | "consent" | "family" | "done";
@@ -27,6 +29,7 @@ export interface GmailLink {
 export interface User {
   _id: ObjectId;
   phone: string;
+  messagePlatform: MessagePlatform;
   displayName?: string;
   language: string;
   familyContacts: FamilyContact[];
@@ -95,6 +98,17 @@ export async function incrementEmailsChecked(id: ObjectId, alreadySeen: number):
   ]);
 }
 
+/**
+ * Remember which channel a family contact texts from. Updates that one field in place,
+ * so a helper added on the family page at the same moment is never overwritten.
+ */
+export async function setFamilyContactPlatform(id: ObjectId, phone: string, platform: MessagePlatform): Promise<void> {
+  const db = await getDb();
+  await db
+    .collection("users")
+    .updateOne({ _id: id, "familyContacts.phone": phone }, { $set: { "familyContacts.$.messagePlatform": platform } });
+}
+
 /** The user who listed this phone as a family contact, plus that contact. */
 export async function findUserByFamilyPhone(
   phone: string,
@@ -116,13 +130,14 @@ export async function listGmailUsers(): Promise<User[]> {
   return docs.map(toUser);
 }
 
-export async function createUser(phone: string): Promise<User> {
+export async function createUser(phone: string, messagePlatform: MessagePlatform = "imessage"): Promise<User> {
   const normalized = normalizePhone(phone);
   const db = await getDb();
   const existing = await db.collection("users").findOne({ phone: normalized });
   if (existing) return toUser(existing);
   const doc = {
     phone: normalized,
+    messagePlatform,
     language: "en",
     familyContacts: [],
     onboardingStep: "language" as const,
@@ -142,6 +157,7 @@ export async function saveUser(
 ): Promise<void> {
   const set: Record<string, unknown> = {};
   if (patch.displayName !== undefined) set.displayName = patch.displayName;
+  if (patch.messagePlatform !== undefined) set.messagePlatform = patch.messagePlatform;
   if (patch.language !== undefined) set.language = patch.language;
   if (patch.familyContacts !== undefined) set.familyContacts = patch.familyContacts;
   if (patch.familyGroupId !== undefined) set.familyGroupId = patch.familyGroupId;
@@ -186,6 +202,7 @@ function toUser(doc: Record<string, unknown> & { _id: ObjectId }): User {
   return {
     _id: doc._id,
     phone: String(doc.phone),
+    messagePlatform: doc.messagePlatform === "sms" ? "sms" : "imessage",
     displayName: typeof doc.displayName === "string" ? doc.displayName : undefined,
     language: typeof doc.language === "string" && doc.language ? doc.language : "en",
     familyContacts: contacts(doc.familyContacts),
@@ -229,12 +246,13 @@ function contacts(value: unknown): FamilyContact[] {
   const parsed: FamilyContact[] = [];
   for (const item of value) {
     if (!item || typeof item !== "object") continue;
-    const contact = item as { name?: unknown; phone?: unknown; relation?: unknown };
+    const contact = item as { name?: unknown; phone?: unknown; relation?: unknown; messagePlatform?: unknown };
     if (typeof contact.name !== "string" || typeof contact.phone !== "string") continue;
     parsed.push({
       name: contact.name,
       phone: normalizePhone(contact.phone),
       relation: typeof contact.relation === "string" ? contact.relation : undefined,
+      messagePlatform: contact.messagePlatform === "sms" ? "sms" : contact.messagePlatform === "imessage" ? "imessage" : undefined,
     });
   }
   return parsed;

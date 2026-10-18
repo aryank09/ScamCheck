@@ -167,6 +167,7 @@ async function addParent(account: Account, fields: Record<string, string>): Prom
         user.phone,
         `${account.name} asked to see your ScamCheck warning summaries on the ScamCheck website. ` +
           "Reply ALLOW to share them. If you don't know them, ignore this.",
+        user.messagePlatform,
       );
     } catch (error) {
       console.error("allow request failed error=" + (error as Error).name);
