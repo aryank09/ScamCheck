@@ -185,22 +185,44 @@ const samples: Sample[] = [
   }),
 ];
 
-function views(days: RangeDays, now: Date): { parents: ParentView[]; cases: CaseRecord[] } {
-  const parents = samples.map((sample) =>
-    parentView(sample.link, sample.user, sample.cases, {
+// With ?live, Rashid gets one new warning every 20 s (up to three) so the dashboard's live
+// refresh has something to show.
+const started = Date.now();
+const LIVE_SCAMS = [
+  { scamType: "fake Wells Fargo alert", claimedBrand: "Wells Fargo", summary: "An email claiming to be Wells Fargo asked him to confirm a payment on a different website." },
+  { scamType: "Medicare card renewal", summary: "An email said his Medicare card was expiring and asked for his card number." },
+  { scamType: "fake Netflix billing", claimedBrand: "Netflix", summary: "An email said his Netflix payment failed and linked to a look-alike site." },
+];
+
+function liveCases(userId: ObjectId, now: Date): CaseRecord[] {
+  const due = Math.min(LIVE_SCAMS.length, Math.floor((now.getTime() - started) / 20_000));
+  return LIVE_SCAMS.slice(0, due).map((scam, index) => ({
+    ...sampleCase(userId, 0, "scam", { ...scam, notifiedVia: ["text", "call"], familyAlerted: true }),
+    createdAt: new Date(started + (index + 1) * 20_000),
+  }));
+}
+
+function views(days: RangeDays, now: Date, live: boolean): { parents: ParentView[]; cases: CaseRecord[] } {
+  const all: CaseRecord[] = [];
+  const parents = samples.map((sample, index) => {
+    const extra = live && index === 0 && sample.user ? liveCases(sample.user._id, now) : [];
+    const user = sample.user && extra.length ? { ...sample.user, emailsChecked: (sample.user.emailsChecked ?? 0) + extra.length * 3 } : sample.user;
+    const cases = [...extra, ...sample.cases];
+    all.push(...cases);
+    return parentView(sample.link, user, cases, {
       days,
       now,
       timeZone: ZONE,
       connectUrl: sample.user ? undefined : `http://localhost:${PORT}/connect/gmail?p=0123456789abcdef0123456789abcdef`,
-    }),
-  );
-  return { parents, cases: samples.flatMap((sample) => sample.cases) };
+    });
+  });
+  return { parents, cases: all };
 }
 
 function render(url: URL): string | null {
   const now = new Date();
   const days = parseRange(url.searchParams.get("days"));
-  const { parents, cases } = views(days, now);
+  const { parents, cases } = views(days, now, url.searchParams.has("live"));
   if (url.pathname === "/") return landingPage(false);
   if (url.pathname === "/login") return authPage("login", url.searchParams.has("error") ? "That email and password did not match." : "", {});
   if (url.pathname === "/signup") return authPage("signup", "", {});
