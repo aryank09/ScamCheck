@@ -1,0 +1,17 @@
+{
+  "id": "real-newsletter-click-tracking",
+  "expectHighFinding": false,
+  "expectCodes": ["HIDDEN_LINK"],
+  "message": {
+    "source": "email",
+    "from": "news@hackathon-weekly.example.com",
+    "displayName": "Hackathon Weekly",
+    "subject": "Five projects we loved this week",
+    "text": "Here are this week's favorite projects. Read the full list on our site.",
+    "links": [
+      { "visibleText": "hackathon-weekly.example.com", "href": "https://u4821.ct.sendgrid.net/ls/click?upn=abc123" }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass header.i=@example.com; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}

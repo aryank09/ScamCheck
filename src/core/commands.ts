@@ -1,7 +1,6 @@
 import { listRecentCases, updateCase } from "../db/cases.js";
 import { deleteUser, ensureFamilyToken, joinFamilyGroups, saveUser, type User } from "../db/users.js";
-import { decryptToken } from "../email/tokens.js";
-import { revokeGmail } from "../email/oauth.js";
+import { disconnectGmail } from "../email/oauth.js";
 import { alertFamily } from "./familyRelay.js";
 import { startWarningCall } from "../voice/outbound.js";
 import { familyPageLink, languageCode, parseFamily } from "./onboarding.js";
@@ -69,7 +68,7 @@ export async function handleCommand(user: User, text: string): Promise<string | 
     return `I will alert ${parsed.name} about risky messages.`;
   }
   if (command === "stop") {
-    await revokeStoredGmail(user);
+    await disconnectGmail(user);
     await deleteUser(user._id);
     return "Your ScamCheck data is deleted. Text me again if you want to start over.";
   }
@@ -102,13 +101,4 @@ export async function dashboardReply(user: User): Promise<string> {
     `Family page: ${link}\n` +
     "It shows warning summaries, not the original messages. Anyone with this link can add helpers."
   );
-}
-
-async function revokeStoredGmail(user: User): Promise<void> {
-  if (!user.gmail?.refreshTokenEnc) return;
-  try {
-    await revokeGmail(decryptToken(user.gmail.refreshTokenEnc));
-  } catch (error) {
-    console.error("gmail revoke failed error=" + (error as Error).name);
-  }
 }

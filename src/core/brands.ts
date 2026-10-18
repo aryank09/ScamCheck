@@ -5,10 +5,20 @@ export interface Brand {
   /** Compact token used to spot the brand inside an unrelated hostname. */
   token: string;
   patterns: readonly RegExp[];
+  /** When set, a sender name must match this to claim the brand. */
+  senderName?: RegExp;
 }
 
 export const BRANDS: readonly Brand[] = [
-  { name: "Chase", domains: ["chase.com"], token: "chase", patterns: [/\bchase\b/i] },
+  {
+    name: "Chase",
+    domains: ["chase.com"],
+    token: "chase",
+    patterns: [/\bchase\b/i],
+    // Chase is also a first name: "Chase Miller" is a person, "Chase Alerts" is the bank.
+    senderName:
+      /^\W*chase\W*$|\bchase\s+(bank|online|card|cards|alerts?|sapphire|freedom|customer|service|security|fraud|team|support|mobile)\b|\bjp\s*morgan\b/i,
+  },
   {
     name: "USPS",
     domains: ["usps.com"],

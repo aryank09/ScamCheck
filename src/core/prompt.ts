@@ -1,3 +1,4 @@
+import { hostOf, registrableDomain } from "./evidence.js";
 import type { AnalysisContext, Finding, ParsedMessage } from "./types.js";
 
 /** Section 9 prompt. Message text is untrusted data and must not be followed. */
@@ -26,7 +27,7 @@ computed by our system.
 
 User's language: ${context.language}
 Source: ${message.source}
-Technical findings (trust these; they come from checks the reader cannot see):
+${message.source === "email" ? `Sender check: ${senderCheck(message)}\n` : ""}Technical findings (trust these; they come from checks the reader cannot see):
 ${findingLines}
 Recent cases for this user and their family (may be empty):
 ${recent}
@@ -61,11 +62,31 @@ Return ONLY this JSON:
 Rules:
 - Never say a message is "safe", "verified", "legitimate", or "official".
   Best case is "no_red_flags".
-- If unsure, choose "suspicious".
+- Most email is ordinary: newsletters, receipts, shipping updates, sign-in
+  alerts, and codes the reader asked for. If there are no [high] findings and
+  nothing pushes the reader to pay, share a code or password, or sign in
+  through a link, choose "no_red_flags".
+- [medium] and [low] findings are hints, not proof. Click tracking, a
+  different Reply-To, and sales language are common in real marketing email.
+- risk_score: 75 or more only for a clear scam, 40 to 74 for suspicious,
+  under 40 for no red flags.
+- If it asks for money, codes, or account access and you are unsure, choose
+  "suspicious".
 - Explain technical findings in plain words, e.g. "It says it's from Chase,
   but it came from a different website."
 - Do not invent facts about the sender.
 - If it matches a recent case, say so briefly.
 - Always remind: real banks and agencies never ask for codes, passwords,
   or payment by text or email.`;
+}
+
+function senderCheck(message: ParsedMessage): string {
+  const header = message.authenticationResults ?? "";
+  const host = hostOf(message.from);
+  const domain = host ? (registrableDomain(host) ?? host) : "the sender's domain";
+  if (/\bdmarc\s*=\s*pass\b/i.test(header)) {
+    return `DMARC passed, so it really came from ${domain}. That alone does not mean it is the company it names.`;
+  }
+  if (/\bdmarc\s*=\s*fail\b/i.test(header)) return `DMARC failed, so ${domain} did not send it.`;
+  return "no DMARC result.";
 }

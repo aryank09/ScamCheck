@@ -1,0 +1,17 @@
+{
+  "id": "real-github-file-link",
+  "expectHighFinding": false,
+  "message": {
+    "source": "email",
+    "from": "notifications@github.com",
+    "displayName": "Sam Rivera",
+    "subject": "Re: [team/app] Add Gmail connect (PR #12)",
+    "text": "Left one comment on the site file. Looks good otherwise.",
+    "links": [
+      { "visibleText": "src/web/site.ts", "href": "https://github.com/team/app/pull/12#discussion_r100" },
+      { "visibleText": "View it on GitHub", "href": "https://github.com/team/app/pull/12" }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass header.i=@github.com; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}

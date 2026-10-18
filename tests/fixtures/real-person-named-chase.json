@@ -1,0 +1,14 @@
+{
+  "id": "real-person-named-chase",
+  "expectHighFinding": false,
+  "message": {
+    "source": "email",
+    "from": "chase.miller@gmail.com",
+    "displayName": "Chase Miller",
+    "subject": "Notes from today",
+    "text": "Here are my notes from the meeting. Talk soon.",
+    "links": [],
+    "authenticationResults": "mx.google.com; dkim=pass header.i=@gmail.com; spf=pass; dmarc=pass",
+    "seenSenderBefore": true
+  }
+}

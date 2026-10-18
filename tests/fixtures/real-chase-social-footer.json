@@ -1,0 +1,19 @@
+{
+  "id": "real-chase-social-footer",
+  "expectHighFinding": false,
+  "message": {
+    "source": "email",
+    "from": "no.reply.alerts@chase.com",
+    "displayName": "Chase",
+    "subject": "Your credit card statement is ready",
+    "text": "Your statement is ready to view. Sign in to the Chase app to see it.",
+    "links": [
+      { "visibleText": "View statement", "href": "https://secure.chase.com/statements" },
+      { "visibleText": "Facebook", "href": "https://www.facebook.com/chase" },
+      { "visibleText": "Instagram", "href": "https://www.instagram.com/chase" },
+      { "visibleText": "Download on the App Store", "href": "https://apps.apple.com/us/app/chase-mobile/id100000001" }
+    ],
+    "authenticationResults": "mx.google.com; dkim=pass header.i=@chase.com; spf=pass; dmarc=pass (p=REJECT) header.from=chase.com",
+    "seenSenderBefore": true
+  }
+}
