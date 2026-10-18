@@ -9,7 +9,7 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "fixtures": "tsx scripts/runFixtures.ts",
-    "test": "tsx --test tests/reviewFixes.test.ts tests/familyDashboard.test.ts tests/veyzlProbes.test.ts",
+    "test": "tsx --test tests/reviewFixes.test.ts tests/familyDashboard.test.ts tests/accounts.test.ts tests/veyzlProbes.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

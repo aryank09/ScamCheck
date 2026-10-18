@@ -12,7 +12,7 @@ export type AppConfig = z.infer<typeof envSchema>;
 let cached: AppConfig | undefined;
 
 /** Load a local `.env` when present. Existing process env wins. */
-function loadDotEnv(): void {
+export function loadEnv(): void {
   const path = resolve(".env");
   if (!existsSync(path)) return;
   const text = readFileSync(path, "utf8");
@@ -35,7 +35,7 @@ function loadDotEnv(): void {
 
 export function loadConfig(): AppConfig {
   if (cached) return cached;
-  loadDotEnv();
+  loadEnv();
   cached = envSchema.parse({
     GEMINI_API_KEY: process.env.GEMINI_API_KEY || undefined,
     GEMINI_MODEL: process.env.GEMINI_MODEL || undefined,
