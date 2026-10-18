@@ -3,6 +3,8 @@
 // Stateless: no case is stored and message text is never logged (AGENTS.md §14).
 import { timingSafeEqual } from "node:crypto";
 import { analyze } from "../core/analyze.js";
+import { isAssistantRequest, preCheck, redactOutput, withRefusal } from "../core/guardrails.js";
+import { imageMime, type AnalysisImage } from "../core/images.js";
 import { alertCopy } from "../core/notify.js";
 
 const MAX_TEXT = 4000;
@@ -37,17 +39,40 @@ export async function runCheck(payload: unknown): Promise<{ status: number; body
   const requested = (payload as { language?: unknown }).language;
   const language = typeof requested === "string" && /^[a-z]{2}$/.test(requested) ? requested : "en";
 
-  const result = await analyze({ source: "imessage", text, links: [] }, { language, recentCaseSummaries: [] });
+  const guard = preCheck(text, /https?:\/\//i.test(text));
+  if (guard) return { status: 200, body: { reply: guard.reply, guard: guard.guard, verdict: null } };
+
+  const image = checkImage(payload);
+  const result = await analyze({ source: "imessage", text, links: [] }, { language, recentCaseSummaries: [] }, image);
+  if (image) image.data.fill(0);
   return {
     status: 200,
     body: {
-      reply: alertCopy(result, result.risk_score < 40),
+      reply: reply(text, result),
       verdict: result.verdict,
       risk_score: result.risk_score,
-      scam_type: result.scam_type,
-      red_flags: result.red_flags,
-      action: result.action,
-      spoken_summary: result.spoken_summary,
+      scam_type: redactOutput(result.scam_type),
+      red_flags: result.red_flags.map(redactOutput),
+      action: redactOutput(result.action),
+      spoken_summary: redactOutput(result.spoken_summary),
     },
   };
+}
+
+function reply(text: string, result: Awaited<ReturnType<typeof analyze>>): string {
+  const lowRisk = result.risk_score < 40;
+  const copy = alertCopy(result, lowRisk);
+  return isAssistantRequest(text) ? withRefusal(copy, lowRisk) : copy;
+}
+
+/** Optional screenshot: a data URL or bare base64 PNG/JPEG. Held in memory for one call. */
+function checkImage(payload: unknown): AnalysisImage | undefined {
+  const raw = (payload as { image?: unknown }).image;
+  if (typeof raw !== "string" || !raw) return undefined;
+  const match = raw.match(/^data:([^;,]+);base64,(.*)$/s);
+  const data = Buffer.from(match ? match[2]! : raw, "base64");
+  if (data.length === 0) return undefined;
+  const sniffed = data[0] === 0x89 ? "image/png" : data[0] === 0xff ? "image/jpeg" : undefined;
+  const mimeType = imageMime(match?.[1] ?? sniffed);
+  return mimeType ? { mimeType, data } : undefined;
 }

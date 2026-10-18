@@ -14,6 +14,7 @@ loadEnv();
 const MAX_BODY_BYTES = 64 * 1024;
 // Post-call payloads carry the whole transcript; a long call easily passes 64 KB.
 const MAX_POST_CALL_BYTES = 2 * 1024 * 1024;
+const MAX_CHECK_BYTES = 8 * 1024 * 1024;
 const port = Number(process.env.PORT ?? "3000");
 
 class PayloadTooLargeError extends Error {}
@@ -171,7 +172,8 @@ const server = createServer(async (request, response) => {
       return;
     }
     try {
-      const rawBody = await readRawBody(request);
+      // Audit probes can carry a base64 screenshot.
+      const rawBody = await readRawBody(request, MAX_CHECK_BYTES);
       const result = await runCheck(JSON.parse(rawBody.toString("utf8")));
       sendJson(response, result.status, result.body);
     } catch (error) {

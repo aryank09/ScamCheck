@@ -9,6 +9,7 @@ import { alertCopy, deliverVoice, notifyLevel } from "./notify.js";
 import { advanceOnboarding, currentPrompt } from "./onboarding.js";
 import { applyAddedParent } from "./parentProfile.js";
 import { analyze } from "./analyze.js";
+import { isAssistantRequest, preCheck, withRefusal } from "./guardrails.js";
 import type { ParsedMessage } from "./types.js";
 
 const seen = new Set<string>();
@@ -78,6 +79,13 @@ async function checkForward(
   text: string,
   image?: AnalysisImage,
 ): Promise<void> {
+  // Crisis, or a parent pasting their own card/SSN: fixed reply, no model.
+  const guard = preCheck(text, /https?:\/\//i.test(text));
+  if (guard) {
+    if (image) image.data.fill(0);
+    await sendText(phone, guard.reply);
+    return;
+  }
   await sendText(phone, "Checking…");
   const message: ParsedMessage = {
     source: "imessage",
@@ -95,7 +103,8 @@ async function checkForward(
   );
   if (image) image.data.fill(0);
   const level = notifyLevel(result);
-  await sendText(phone, alertCopy(result, level === "none"));
+  const copy = alertCopy(result, level === "none");
+  await sendText(phone, isAssistantRequest(text) ? withRefusal(copy, level === "none") : copy);
   if (level !== "none") await deliverVoice(phone, result.spoken_summary);
   const caseId = await createCase({
     userId: user._id,

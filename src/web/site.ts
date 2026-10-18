@@ -13,6 +13,7 @@ import {
 } from "../db/accounts.js";
 import { checkPassword } from "../db/accounts.js";
 import { findUserByPhone } from "../db/users.js";
+import { sendText } from "../channels/photon.js";
 import { familyView, type FamilySnapshot } from "./family.js";
 import {
   clearSessionCookie,
@@ -35,7 +36,7 @@ const LANGUAGE_LABELS: Record<string, string> = {
 
 const NOTICES: Record<string, string> = {
   added: "Added. Summaries show here after they agree with ScamCheck.",
-  watching: "Added. Their summaries are on this page.",
+  watching: "Added. We texted them; their summaries show here once they reply ALLOW.",
   removed: "Removed from your account.",
 };
 
@@ -158,7 +159,20 @@ async function addParent(account: Account, fields: Record<string, string>): Prom
   const user = await findUserByPhone(parsed.value.phone);
   const result = await addParentLink(account._id, { ...parsed.value, userId: user?._id });
   if (result === "duplicate") return { status: 303, redirect: "/app?error=duplicate" };
-  const notice = parentIsWatching(user?.consentAcceptedAt) ? "watching" : "added";
+  const watching = parentIsWatching(user?.consentAcceptedAt);
+  // A phone number is not proof of family: the parent must say yes before this account sees anything.
+  if (user && watching) {
+    try {
+      await sendText(
+        user.phone,
+        `${account.name} asked to see your ScamCheck warning summaries on the ScamCheck website. ` +
+          "Reply ALLOW to share them. If you don't know them, ignore this.",
+      );
+    } catch (error) {
+      console.error("allow request failed error=" + (error as Error).name);
+    }
+  }
+  const notice = watching ? "watching" : "added";
   return { status: 303, redirect: "/app?notice=" + notice };
 }
 
@@ -177,7 +191,7 @@ interface ParentCard {
 
 async function parentCard(link: ParentLink): Promise<ParentCard> {
   const user = await findUserByPhone(link.phone);
-  if (!user || !parentIsWatching(user.consentAcceptedAt)) return { link, watching: false };
+  if (!user || !parentIsWatching(user.consentAcceptedAt) || !link.approvedAt) return { link, watching: false };
   return { link, watching: true, snapshot: familyView(user, await listCasesForUser(user._id, 7)) };
 }
 
@@ -227,7 +241,7 @@ function renderCard(card: ParentCard): string {
   const status = card.watching
     ? `<span class="pill watching">Watching</span>`
     : `<span class="pill waiting">Waiting for them</span>`;
-  const body = card.watching && card.snapshot ? metricsBlock(card.snapshot) : `<p class="lede">Summaries show here after they agree with ScamCheck.</p>`;
+  const body = card.watching && card.snapshot ? metricsBlock(card.snapshot) : `<p class="lede">Summaries show here after they agree with ScamCheck and reply ALLOW to the text we send them.</p>`;
   return `<article class="card parent">
     <header>
       <div><h3>${escapeHtml(who)}</h3><p class="meta">···${escapeHtml(last4)} · ${escapeHtml(language)}</p></div>
