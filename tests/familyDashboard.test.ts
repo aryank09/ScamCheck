@@ -13,6 +13,7 @@ function user(): User {
   return {
     _id: new ObjectId(),
     phone: "+15550001111",
+    messagePlatform: "imessage",
     displayName: "Rashid",
     language: "ur",
     familyContacts: [{ name: "Aryan", phone: "+15551234567", relation: "son" }],

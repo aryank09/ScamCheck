@@ -1,7 +1,7 @@
 import { ObjectId } from "mongodb";
 import { getDb } from "./mongo.js";
 
-export type CaseSource = "email" | "imessage" | "whatsapp" | "call";
+export type CaseSource = "email" | "imessage" | "sms" | "whatsapp" | "call";
 export type CaseVerdict = "scam" | "suspicious" | "no_red_flags";
 export type NotifyChannel = "call" | "text" | "digest";
 export type UserAction = "paid" | "clicked" | "ignored" | "confirmed_real";

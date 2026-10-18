@@ -1,4 +1,4 @@
-export type MessageSource = "email" | "imessage" | "whatsapp";
+export type MessageSource = "email" | "imessage" | "sms" | "whatsapp";
 
 export type FindingSeverity = "high" | "medium" | "low";
 

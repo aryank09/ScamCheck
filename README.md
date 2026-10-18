@@ -2,14 +2,14 @@
 
 ScamCheck watches for scams, warns parents in their own language, and brings the family in to help. The AI catches it; the family decides.
 
-Built for DubHacks '26. It lives where older parents and immigrant families already are: Gmail, iMessage, and a phone call. They do not open an app or learn a new tool.
+Built for DubHacks '26. It lives where older parents and immigrant families already are: Gmail, iMessage, Android SMS, and a phone call. They do not open an app or learn a new tool.
 
 ## What it does
 
 1. **Proactive email scanning.** After a one-time read-only Gmail connect, ScamCheck polls the inbox. The user does nothing.
 2. **Outbound warning call.** A high-risk email triggers a spoken warning in the user's language, then a text and a voice note.
-3. **Ask anything.** Messages ScamCheck cannot read (iMessage, WhatsApp, screenshots) are forwarded to the ScamCheck contact, or the user calls and describes them. They get a verdict by text and voice note, or spoken on the call.
-4. **Two-way family loop.** On a risky item, a linked family member gets an alert with no original content. Their reply is relayed back, as text and a voice note.
+3. **Ask anything.** Messages ScamCheck cannot read (iMessage, SMS, WhatsApp, screenshots) are forwarded to the ScamCheck contact, or the user calls and describes them. They get a verdict by text and, on iMessage, a voice note, or spoken on the call.
+4. **Two-way family loop.** On a risky item, a linked family member gets an alert with no original content. Their reply is relayed back as text, with a voice note on iMessage.
 5. **Memory across channels.** Cases are stored as short summaries. A later call or text can refer to an email that was already flagged, and to the same scam hitting another person in the family.
 
 Identity is the phone number in E.164, shared across iMessage, calls, and family links. A Gmail account is attached to that user.
@@ -19,9 +19,10 @@ Identity is the phone number in E.164, shared across iMessage, calls, and family
 | Gmail | Yes, read-only, after OAuth | Poll every 15–20 seconds |
 | iPhone texts / iMessage | No — iOS does not allow it | User forwards to the ScamCheck contact, or calls |
 | Personal WhatsApp | No — no API for personal chats | User forwards a screenshot or the text, or calls |
-| Android SMS, Outlook | Not in this build | — |
+| Android SMS | No — Android does not let third-party apps read other apps' private SMS | User forwards a message to the ScamCheck SMS number, or calls |
+| Outlook | Not in this build | — |
 
-Photon gives ScamCheck its own iMessage line and SMS number. It does not read the user's other conversations.
+Photon gives ScamCheck its own iMessage line and SMS number. Users can start on either channel; replies follow the channel they used most recently. It does not read the user's other conversations. SMS reachability depends on Photon number availability and required carrier registration/authorization; iMessage requires an eligible iMessage recipient/route.
 
 ## Architecture
 
@@ -36,7 +37,7 @@ flowchart TB
   subgraph server ["ScamCheck server"]
     Watcher["email watcher<br/>poll new message IDs"]
     Parse["parse headers, HTML, links"]
-    Inbox["iMessage inbox<br/>poll Photon"]
+    Inbox["iMessage + SMS inbox<br/>poll Photon"]
     Route{"forward, command,<br/>or family reply?"}
     Evidence["evidence checks<br/>rules before the model"]
     Analyze["Gemini analyze<br/>verdict JSON"]
@@ -49,7 +50,7 @@ flowchart TB
   end
 
   subgraph out ["What goes out"]
-    Text["Photon iMessage<br/>text + voice note"]
+    Text["Photon iMessage or SMS<br/>text; voice note on iMessage"]
     Call["ElevenLabs agent<br/>SIP via Photon SMS"]
     TTS["ElevenLabs TTS"]
   end
@@ -85,8 +86,8 @@ Rules run first. Any high finding sets a floor of 75, so the model cannot talk a
 1. Poll `in:inbox newer_than:1d` and skip IDs already seen.
 2. Fetch the message, parse headers and HTML, and extract links (visible text versus real href).
 3. Run evidence checks, then Gemini, then `notifyEmail`.
-4. High risk: iMessage alert, voice note, outbound call, and a family alert.
-5. Medium risk: iMessage alert and voice note.
+4. High risk: text alert on the user's active channel, iMessage voice note when available, outbound call, and a family alert.
+5. Medium risk: text alert on the user's active channel, plus an iMessage voice note when available.
 6. Low risk: store a case summary and send nothing.
 
 ### Inbound text
@@ -107,8 +108,8 @@ The alert names the person and the scam type only. A reply is matched to the lat
 
 | Score | What the user gets |
 |---|---|
-| 75–100 | Outbound call, iMessage alert, voice note, family alert |
-| 40–74 | iMessage alert and voice note |
+| 75–100 | Outbound call, SMS or iMessage alert, iMessage voice note when available, family alert |
+| 40–74 | SMS or iMessage alert and iMessage voice note when available |
 | 0–39 | No message. Counted as a checked item |
 
 ScamCheck never tells someone a message is safe, verified, legitimate, or official. The best outcome is **no red flags**. Every alert ends with: automated check — it can be wrong; verify with the company directly.
@@ -129,7 +130,7 @@ Evidence checks, before the model:
 | Piece | Choice |
 |---|---|
 | Runtime | TypeScript, Node.js 20+ |
-| Messaging | Photon 2.0 beta (`@photon-ai/api`) — iMessage for text, SMS number for voice |
+| Messaging | Photon 2.0 beta (`@photon-ai/api`) — iMessage and SMS for text; SMS number also supports voice |
 | Model | Google Gemini Flash, JSON output, validated with zod |
 | Voice notes | ElevenLabs text-to-speech |
 | Calls | ElevenLabs Agents over SIP to the Photon SMS number |
@@ -144,7 +145,7 @@ cp .env.example .env
 npm start
 ```
 
-`npm start` listens on `PORT` (default 3000), starts the iMessage poll when Photon is configured, and starts the Gmail poll when MongoDB and Google OAuth are configured.
+`npm start` listens on `PORT` (default 3000), polls inbound iMessage and SMS when Photon is configured, and starts the Gmail poll when MongoDB and Google OAuth are configured.
 
 ```bash
 npm test          # unit tests
@@ -185,8 +186,9 @@ Copy `.env.example`. Do not commit `.env`.
 | `ELEVENLABS_AGENT_ID`, `ELEVENLABS_PHONE_NUMBER_ID` | Outbound warning calls |
 | `ELEVENLABS_WEBHOOK_SECRET` | Post-call signature |
 | `VOICE_TOOL_SECRET` | Mid-call tool auth |
-| `PHOTON_PROJECT_ID`, `PHOTON_PROJECT_SECRET`, `PHOTON_API_KEY` | iMessage send and receive |
-| `PHOTON_AGENT_USER_ID` | Optional agent user; otherwise the project iMessage user |
+| `PHOTON_PROJECT_ID`, `PHOTON_PROJECT_SECRET`, `PHOTON_API_KEY` | Photon iMessage and SMS send/receive |
+| `PHOTON_AGENT_USER_ID` | Optional iMessage agent user; otherwise discovered from the project |
+| `PHOTON_SMS_AGENT_USER_ID` | Optional SMS agent user; otherwise discovered from the project |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | Gmail OAuth |
 | `SAFE_BROWSING_API_KEY` | Optional URL check |
 | `EMAIL_POLL_SECONDS` | Inbox poll interval, default 20 |
