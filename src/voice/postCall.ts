@@ -6,6 +6,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { findUserByPhone } from "../db/users.js";
 import { sendText } from "../channels/photon.js";
 import { scrubBannedWords } from "../core/bannedWords.js";
+import { redactOutput } from "../core/guardrails.js";
 
 const MAX_AGE_SECS = 30 * 60;
 const FOOTER = "Automated check — it can be wrong. Verify with the company directly.";
@@ -64,7 +65,7 @@ export async function handlePostCall(rawBody: Buffer | string, signature: string
 
   try {
     // followup_text is LLM-written, so it gets the same banned-words pass as analyze.ts.
-    await sendText(user.phone, `${scrubBannedWords(text)}\n\n${FOOTER}`, user.messagePlatform);
+    await sendText(user.phone, `${redactOutput(scrubBannedWords(text))}\n\n${FOOTER}`, user.messagePlatform);
   } catch (err) {
     console.error(`post-call follow-up failed conv=${event.data.conversation_id} error=${(err as Error).name}`);
   }

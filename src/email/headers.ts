@@ -1,3 +1,10 @@
+/** The mailbox in a From header, lowercased. Missing when the header has no address. */
+export function emailAddressFromHeader(from: string | undefined): string | undefined {
+  if (!from) return undefined;
+  const match = from.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
+  return match ? match[0].toLowerCase() : undefined;
+}
+
 /** The name in a From header. A bare address is not a name. */
 export function displayNameFromHeader(from: string | undefined): string | undefined {
   if (!from) return undefined;

@@ -1,11 +1,32 @@
-import { approveParentLinks } from "../db/accounts.js";
+import { approveLatestParentLink } from "../db/accounts.js";
 import { listRecentCases, updateCase } from "../db/cases.js";
-import { deleteUser, ensureFamilyToken, saveUser, type User } from "../db/users.js";
+import { deleteUser, ensureFamilyToken, joinFamilyGroups, saveUser, type User } from "../db/users.js";
 import { decryptToken } from "../email/tokens.js";
 import { revokeGmail } from "../email/oauth.js";
 import { alertFamily } from "./familyRelay.js";
 import { startWarningCall } from "../voice/outbound.js";
 import { familyPageLink, languageCode, parseFamily } from "./onboarding.js";
+
+const COMMAND_RE = /^(language|family|help|stop|paid|clicked|dashboard|remove|allow)\b/i;
+
+/** A word the sender is saying to ScamCheck, not a reply to pass on to a parent. */
+export function isUserCommand(text: string): boolean {
+  return COMMAND_RE.test(text.trim());
+}
+
+/**
+ * Unknown text does not change the saved language. "LANGUAGE french" used to
+ * overwrite Urdu with English.
+ */
+export function languageCommandResult(rest: string, current: string): { save?: string; reply: string } {
+  const language = languageCode(rest, true);
+  if (!language) {
+    return {
+      reply: `I don't have that language saved, so I will keep using ${current}. You can say English, Spanish, Urdu, or Hindi.`,
+    };
+  }
+  return { save: language, reply: `I will reply in ${language}.` };
+}
 
 const URGENT =
   "Call your bank right away using the number on your card. Do not use a number from the message. I will let your family contact know.";
@@ -20,10 +41,13 @@ export async function handleCommand(user: User, text: string): Promise<string | 
     return "Forward a message and I will check it. Commands: LANGUAGE, FAMILY, REMOVE, HELP, STOP, PAID, CLICKED, DASHBOARD. Or just call me.";
   }
   if (command === "allow") {
-    const approved = await approveParentLinks(user.phone);
-    return approved > 0
-      ? "Done. Your family on the ScamCheck website can now see your warning summaries, not your messages."
-      : "There's no request to approve right now.";
+    const result = await approveLatestParentLink(user.phone);
+    if (!result.approved) return "There's no request to approve right now.";
+    const more =
+      result.remaining > 0
+        ? " Someone else also asked. Reply ALLOW again if you want them to see summaries too."
+        : "";
+    return `Done. Your family on the ScamCheck website can now see your warning summaries, not your messages.${more}`;
   }
   if (command === "dashboard") {
     return dashboardReply(user);
@@ -38,19 +62,20 @@ export async function handleCommand(user: User, text: string): Promise<string | 
     return "Removed. They won't get your alerts anymore.";
   }
   if (command === "language") {
-    const language = languageCode(rest, true) ?? "en";
-    await saveUser(user._id, { language });
-    return language === "en" && !/english|\ben\b/i.test(rest)
-      ? "I don't have that language saved, so I will use English."
-      : `I will reply in ${language}.`;
+    const choice = languageCommandResult(rest, user.language);
+    if (choice.save) {
+      await saveUser(user._id, { language: choice.save });
+      user.language = choice.save;
+    }
+    return choice.reply;
   }
   if (command === "family") {
     const parsed = parseFamily(rest);
     if (!parsed) return "Send FAMILY, then their name and number.";
-    await saveUser(user._id, {
-      familyContacts: [...user.familyContacts.filter((item) => item.phone !== parsed.phone), parsed],
-      familyGroupId: user.familyGroupId ?? user._id.toHexString(),
-    });
+    user.familyContacts = [...user.familyContacts.filter((item) => item.phone !== parsed.phone), parsed];
+    user.familyGroupId = user.familyGroupId ?? user._id.toHexString();
+    await saveUser(user._id, { familyContacts: user.familyContacts, familyGroupId: user.familyGroupId });
+    await joinFamilyGroups(user);
     return `I will alert ${parsed.name} about risky messages.`;
   }
   if (command === "stop") {
@@ -64,7 +89,7 @@ export async function handleCommand(user: User, text: string): Promise<string | 
     const caseId = latest ? String(latest._id) : undefined;
     const what = command === "paid" ? "already paid" : "already clicked";
     const scamType = latest ? `${latest.scamType} (${what})` : what;
-    if (caseId) await updateCase(caseId, { userAction: command });
+    if (caseId) await updateCase(caseId, { userAction: command, callDeferredUntil: null });
     if (user.familyContacts.length > 0) await alertFamily(user, { scamType, caseId });
     await startWarningCall({
       toPhone: user.phone,

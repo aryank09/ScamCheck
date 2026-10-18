@@ -3,6 +3,7 @@ import { loadEnv } from "./config.js";
 import { startInbox } from "./channels/inbox.js";
 import { authRedirect, connectPage, finishConnect } from "./email/oauth.js";
 import { startEmailWatcher } from "./email/watcher.js";
+import { placeDeferredCalls } from "./core/notify.js";
 import { addHelper, familyErrorHtml, getFamilyApi, renderFamilyPage, replyOnFamilyPage } from "./web/family.js";
 import { checkAuditToken, runCheck } from "./web/check.js";
 import { handleSite, isSitePath, siteErrorHtml } from "./web/site.js";
@@ -250,4 +251,11 @@ server.listen(port, "0.0.0.0", () => {
   console.info("ScamCheck API listening on port " + port);
   startInbox();
   if (process.env.MONGODB_URI && process.env.GOOGLE_CLIENT_ID) startEmailWatcher();
+  if (process.env.MONGODB_URI) {
+    setInterval(() => {
+      placeDeferredCalls().catch((error: unknown) => {
+        console.error("deferred call failed error=" + (error as Error).name);
+      });
+    }, 60_000);
+  }
 });

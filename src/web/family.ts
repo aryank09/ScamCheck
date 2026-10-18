@@ -4,6 +4,7 @@ import { scrubBannedWords } from "../core/bannedWords.js";
 import { listCasesForUser, type CaseRecord, type NotifyChannel } from "../db/cases.js";
 import {
   findUserByFamilyToken,
+  joinFamilyGroups,
   normalizePhone,
   saveUser,
   type FamilyContact,
@@ -120,6 +121,7 @@ export async function addHelper(token: string, payload: unknown): Promise<Family
   });
   user.familyContacts = familyContacts;
   if (!user.familyGroupId) user.familyGroupId = user._id.toHexString();
+  await joinFamilyGroups(user);
   // AGENTS.md §14: alerts only go to contacts the user chose. A link holder added this one,
   // so tell the parent and give them a one-word undo.
   if (!exists) {

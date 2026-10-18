@@ -249,12 +249,20 @@ function toLink(doc: Record<string, unknown> & { _id: ObjectId }): ParentLink {
   return link;
 }
 
-/** The parent replied ALLOW: every account that asked for this number may now see summaries. */
-export async function approveParentLinks(phone: string): Promise<number> {
+/**
+ * The parent replied ALLOW. Approve only the newest request they have not
+ * answered, so one reply cannot unlock a second account they have not seen.
+ */
+export async function approveLatestParentLink(phone: string): Promise<{ approved: boolean; remaining: number }> {
   await readyAccountStore();
   const db = await getDb();
-  const result = await db
+  const pending = await db
     .collection("parentLinks")
-    .updateMany({ phone, approvedAt: { $exists: false } }, { $set: { approvedAt: new Date() } });
-  return result.modifiedCount;
+    .find({ phone, approvedAt: { $exists: false } })
+    .sort({ createdAt: -1 })
+    .toArray();
+  const latest = pending[0];
+  if (!latest) return { approved: false, remaining: 0 };
+  await db.collection("parentLinks").updateOne({ _id: latest._id }, { $set: { approvedAt: new Date() } });
+  return { approved: true, remaining: pending.length - 1 };
 }
