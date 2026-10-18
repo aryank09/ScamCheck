@@ -5,7 +5,8 @@
 import { scrubBannedWords } from "./core/bannedWords.js";
 import type { CaseSource, CaseVerdict } from "./db/cases.js";
 
-export const DIGEST_FOOTER = `"No red flags" doesn't guarantee something is safe.`;
+/** Required disclaimer. Labels above it are scrubbed so a case title cannot add a banned word. */
+export const DIGEST_FOOTER = "No red flags doesn't guarantee something is safe.";
 
 /** The case fields this summary needs. No raw email or message body. */
 export interface DigestCase {
