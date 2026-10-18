@@ -25,7 +25,8 @@ export function startInbox(): void {
         .flatMap((result) => (result.status === "fulfilled" ? result.value : []))
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       for (const message of batch) {
-        await handleInboundText(message);
+        const done = await handleInboundText(message);
+        if (!done) break;
         if (message.createdAt > since) since = message.createdAt;
       }
     } finally {

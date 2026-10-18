@@ -43,6 +43,9 @@ export interface User {
   familyToken?: string;
   /** Running total of Gmail messages processed, including ones the model skipped. */
   emailsChecked: number;
+  /** From addresses already seen. Addresses only, capped, so "new sender" is not every email. */
+  seenSenders?: string[];
+  quietHours?: { start: string; end: string; tz: string };
 }
 
 export async function findUserByPhone(phone: string): Promise<User | null> {
@@ -109,19 +112,75 @@ export async function setFamilyContactPlatform(id: ObjectId, phone: string, plat
     .updateOne({ _id: id, "familyContacts.phone": phone }, { $set: { "familyContacts.$.messagePlatform": platform } });
 }
 
+export async function findUserById(id: ObjectId): Promise<User | null> {
+  const db = await getDb();
+  const doc = await db.collection("users").findOne({ _id: id });
+  return doc ? toUser(doc) : null;
+}
+
+/** Every user who listed this phone as a family contact, plus that contact. */
+export async function findUsersByFamilyPhone(
+  phone: string,
+): Promise<{ user: User; contact: FamilyContact }[]> {
+  const normalized = normalizePhone(phone);
+  if (!normalized) return [];
+  const db = await getDb();
+  const docs = await db.collection("users").find({ "familyContacts.phone": normalized }).toArray();
+  const matches: { user: User; contact: FamilyContact }[] = [];
+  for (const doc of docs) {
+    const user = toUser(doc);
+    const contact = user.familyContacts.find((item) => item.phone === normalized);
+    if (contact) matches.push({ user, contact });
+  }
+  return matches;
+}
+
 /** The user who listed this phone as a family contact, plus that contact. */
 export async function findUserByFamilyPhone(
   phone: string,
 ): Promise<{ user: User; contact: FamilyContact } | null> {
-  const normalized = normalizePhone(phone);
-  if (!normalized) return null;
+  const matches = await findUsersByFamilyPhone(phone);
+  return matches[0] ?? null;
+}
+
+/**
+ * Give this user and the people they text with one familyGroupId, so a later
+ * check can see a spouse's recent case. Old cases move onto the shared id.
+ */
+export async function joinFamilyGroups(user: User): Promise<void> {
+  const listedBy = await findUsersByFamilyPhone(user.phone);
+  for (const match of listedBy) {
+    if (String(match.user._id) === String(user._id)) continue;
+    await shareUsers(user, match.user);
+  }
+  for (const contact of user.familyContacts) {
+    if (contact.phone === user.phone) continue;
+    const other = await findUserByPhone(contact.phone);
+    if (!other || String(other._id) === String(user._id)) continue;
+    await shareUsers(user, other);
+  }
+}
+
+async function shareUsers(a: User, b: User): Promise<void> {
+  const group = a.familyGroupId ?? b.familyGroupId ?? a._id.toHexString();
+  if (a.familyGroupId === group && b.familyGroupId === group) return;
+  await moveGroup(a, group);
+  const fresh = (await findUserById(b._id)) ?? b;
+  await moveGroup(fresh, group);
+  b.familyGroupId = fresh.familyGroupId;
+}
+
+async function moveGroup(user: User, group: string): Promise<void> {
+  if (user.familyGroupId === group) return;
+  const previous = user.familyGroupId;
+  await saveUser(user._id, { familyGroupId: group });
+  user.familyGroupId = group;
   const db = await getDb();
-  const doc = await db.collection("users").findOne({ "familyContacts.phone": normalized });
-  if (!doc) return null;
-  const user = toUser(doc);
-  const contact = user.familyContacts.find((item) => item.phone === normalized);
-  if (!contact) return null;
-  return { user, contact };
+  if (previous && previous !== group) {
+    await db.collection("users").updateMany({ familyGroupId: previous }, { $set: { familyGroupId: group } });
+    await db.collection("cases").updateMany({ familyGroupId: previous }, { $set: { familyGroupId: group } });
+  }
+  await db.collection("cases").updateMany({ userId: user._id }, { $set: { familyGroupId: group } });
 }
 
 export async function listGmailUsers(): Promise<User[]> {
@@ -153,7 +212,7 @@ export async function createUser(phone: string, messagePlatform: MessagePlatform
 
 export async function saveUser(
   id: ObjectId,
-  patch: Partial<Omit<User, "_id" | "phone">> & { seenEmailId?: string },
+  patch: Partial<Omit<User, "_id" | "phone">> & { seenEmailId?: string; seenSender?: string },
 ): Promise<void> {
   const set: Record<string, unknown> = {};
   if (patch.displayName !== undefined) set.displayName = patch.displayName;
@@ -169,12 +228,18 @@ export async function saveUser(
   if (patch.familyToken !== undefined) set.familyToken = patch.familyToken;
   const update: Record<string, unknown> = {};
   if (Object.keys(set).length > 0) update.$set = set;
-  if (patch.seenEmailId) update.$addToSet = { seenEmailIds: patch.seenEmailId };
+  const add: Record<string, string> = {};
+  if (patch.seenEmailId) add.seenEmailIds = patch.seenEmailId;
+  if (patch.seenSender) add.seenSenders = patch.seenSender.toLowerCase();
+  if (Object.keys(add).length > 0) update.$addToSet = add;
   if (Object.keys(update).length === 0) return;
   const db = await getDb();
   await db.collection("users").updateOne({ _id: id }, update);
-  if (patch.seenEmailId) {
-    await db.collection("users").updateOne({ _id: id }, [{ $set: { seenEmailIds: { $slice: ["$seenEmailIds", -500] } } }]);
+  const slice: Record<string, unknown> = {};
+  if (patch.seenEmailId) slice.seenEmailIds = { $slice: ["$seenEmailIds", -500] };
+  if (patch.seenSender) slice.seenSenders = { $slice: ["$seenSenders", -200] };
+  if (Object.keys(slice).length > 0) {
+    await db.collection("users").updateOne({ _id: id }, [{ $set: slice }]);
   }
 }
 
@@ -217,7 +282,16 @@ function toUser(doc: Record<string, unknown> & { _id: ObjectId }): User {
       typeof doc.emailsChecked === "number" && doc.emailsChecked >= 0
         ? doc.emailsChecked
         : stringList(doc.seenEmailIds).length,
+    seenSenders: stringList(doc.seenSenders).map((sender) => sender.toLowerCase()),
+    quietHours: quietHoursOf(doc.quietHours),
   };
+}
+
+function quietHoursOf(value: unknown): User["quietHours"] {
+  if (!value || typeof value !== "object") return undefined;
+  const hours = value as { start?: unknown; end?: unknown; tz?: unknown };
+  if (typeof hours.start !== "string" || typeof hours.end !== "string" || typeof hours.tz !== "string") return undefined;
+  return { start: hours.start, end: hours.end, tz: hours.tz };
 }
 
 function stepOf(value: unknown): OnboardingStep {

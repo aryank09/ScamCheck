@@ -1,5 +1,5 @@
 import type { User } from "../db/users.js";
-import { saveUser } from "../db/users.js";
+import { joinFamilyGroups, saveUser } from "../db/users.js";
 import { normalizePhone } from "../db/users.js";
 
 const CONSENT: Record<string, string> = {
@@ -100,12 +100,15 @@ export async function advanceOnboarding(user: User, text: string): Promise<strin
 
   const parsed = parseFamily(trimmed);
   if (!parsed) return "Send their name and number, or reply SKIP.";
+  user.familyContacts = [...user.familyContacts, parsed];
+  user.familyGroupId = user.familyGroupId ?? user._id.toHexString();
+  user.onboardingStep = "done";
   await saveUser(user._id, {
-    familyContacts: [...user.familyContacts, parsed],
-    familyGroupId: user.familyGroupId ?? user._id.toHexString(),
+    familyContacts: user.familyContacts,
+    familyGroupId: user.familyGroupId,
     onboardingStep: "done",
   });
-  user.onboardingStep = "done";
+  await joinFamilyGroups(user);
   return `I'll tell ${parsed.name} if something looks risky.\n\nConnect Gmail: ${connectLink(user)}`;
 }
 

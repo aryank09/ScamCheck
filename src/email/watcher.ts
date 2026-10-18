@@ -3,7 +3,7 @@ import { collectEvidence } from "../core/evidence.js";
 import { analyze } from "../core/analyze.js";
 import { notifyEmail } from "../core/notify.js";
 import { recentSummaries } from "../core/memory.js";
-import { displayNameFromHeader } from "./headers.js";
+import { displayNameFromHeader, emailAddressFromHeader } from "./headers.js";
 import { parseHtml } from "./parse.js";
 import { decryptToken } from "./tokens.js";
 import { oauthClient } from "./oauth.js";
@@ -49,17 +49,12 @@ async function pollUser(user: User): Promise<void> {
   if (!client) return;
   client.setCredentials({ refresh_token: decryptToken(user.gmail.refreshTokenEnc) });
   const gmail = google.gmail({ version: "v1", auth: client });
-  const listed = await gmail.users.messages.list({
-    userId: "me",
-    q: "in:inbox newer_than:1d",
-    maxResults: 8,
-  });
-  const ids = (listed.data.messages ?? []).map((message) => message.id).filter((id): id is string => Boolean(id));
+  const ids = await listUnseenIds(gmail, user.seenEmailIds);
   for (const id of ids) {
     if (user.seenEmailIds.includes(id)) continue;
     try {
       const full = await gmail.users.messages.get({ userId: "me", id, format: "full" });
-      const parsed = parseGmail(full.data);
+      const parsed = parseGmail(full.data, user.seenSenders ?? []);
       const findings = collectEvidence(parsed);
       const worthModel =
         parsed.links.length > 0 ||
@@ -74,13 +69,43 @@ async function pollUser(user: User): Promise<void> {
         await notifyEmail(user, result);
       }
       const alreadySeen = user.seenEmailIds.length;
-      await saveUser(user._id, { seenEmailId: id, gmail: { ...user.gmail, lastCheckedAt: new Date() } });
+      const sender = emailAddressFromHeader(parsed.from);
+      await saveUser(user._id, {
+        seenEmailId: id,
+        ...(sender ? { seenSender: sender } : {}),
+        gmail: { ...user.gmail, lastCheckedAt: new Date() },
+      });
       await incrementEmailsChecked(user._id, alreadySeen);
       user.seenEmailIds.push(id);
+      if (sender && !(user.seenSenders ?? []).includes(sender)) {
+        user.seenSenders = [...(user.seenSenders ?? []), sender];
+      }
     } catch (error) {
       console.error("gmail message failed error=" + (error as Error).name);
     }
   }
+}
+
+/** Page past mail we already scored. A single page of the newest 8 hid everything behind it. */
+async function listUnseenIds(gmail: gmail_v1.Gmail, seen: readonly string[]): Promise<string[]> {
+  const have = new Set(seen);
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+  do {
+    const listed = await gmail.users.messages.list({
+      userId: "me",
+      q: "in:inbox newer_than:1d",
+      maxResults: 25,
+      ...(pageToken ? { pageToken } : {}),
+    });
+    for (const message of listed.data.messages ?? []) {
+      if (!message.id || have.has(message.id)) continue;
+      ids.push(message.id);
+      if (ids.length >= 40) return ids;
+    }
+    pageToken = listed.data.nextPageToken ?? undefined;
+  } while (pageToken);
+  return ids;
 }
 
 function hasAttachment(payload: gmail_v1.Schema$MessagePart | undefined): boolean {
@@ -89,24 +114,26 @@ function hasAttachment(payload: gmail_v1.Schema$MessagePart | undefined): boolea
   return (payload.parts ?? []).some((part) => hasAttachment(part));
 }
 
-function parseGmail(message: gmail_v1.Schema$Message): ParsedMessage {
+function parseGmail(message: gmail_v1.Schema$Message, seenSenders: readonly string[]): ParsedMessage {
   const headers = message.payload?.headers ?? [];
   const header = (name: string) =>
     headers.find((item) => item.name?.toLowerCase() === name.toLowerCase())?.value ?? undefined;
   const html = partText(message.payload, "text/html");
   const plain = partText(message.payload, "text/plain");
   const parsedHtml = html ? parseHtml(html) : { text: "", links: [] as MessageLink[] };
+  const from = header("from");
+  const sender = emailAddressFromHeader(from);
   return {
     source: "email",
-    from: header("from"),
+    from,
     replyTo: header("reply-to"),
     subject: header("subject"),
-    displayName: displayNameFromHeader(header("from")),
+    displayName: displayNameFromHeader(from),
     text: plain || parsedHtml.text,
     html,
     links: parsedHtml.links,
     authenticationResults: header("authentication-results"),
-    seenSenderBefore: false,
+    seenSenderBefore: Boolean(sender && seenSenders.includes(sender)),
   };
 }
 

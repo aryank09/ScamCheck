@@ -27,6 +27,10 @@ export interface CaseRecord {
   userAction?: UserAction;
   latencyMs: number;
   createdAt: Date;
+  /** Set when a warning call is waiting for quiet hours to end. */
+  callDeferredUntil?: Date;
+  /** Short warning to speak on the deferred call. Not the original message. */
+  callOpening?: string;
 }
 
 export interface NewCase {
@@ -50,6 +54,9 @@ export interface CaseUpdate {
   notifiedVia?: NotifyChannel;
   familyAlerted?: boolean;
   familyResponse?: string;
+  /** A Date defers the call. Null clears it once the call is placed. */
+  callDeferredUntil?: Date | null;
+  callOpening?: string;
 }
 
 export async function createCase(input: NewCase): Promise<ObjectId> {
@@ -74,18 +81,40 @@ export async function createCase(input: NewCase): Promise<ObjectId> {
   return result.insertedId;
 }
 
+export async function findCaseById(id: string): Promise<CaseRecord | null> {
+  if (!ObjectId.isValid(id)) return null;
+  const db = await getDb();
+  return db.collection<CaseRecord>("cases").findOne({ _id: new ObjectId(id) });
+}
+
 export async function updateCase(id: string, update: CaseUpdate): Promise<void> {
   if (!ObjectId.isValid(id)) return;
   const set: Record<string, unknown> = {};
+  const unset: Record<string, ""> = {};
   if (update.userAction) set.userAction = update.userAction;
   if (update.familyAlerted !== undefined) set.familyAlerted = update.familyAlerted;
   if (update.familyResponse) set.familyResponse = clip(update.familyResponse, 240);
+  if (update.callDeferredUntil) set.callDeferredUntil = update.callDeferredUntil;
+  if (update.callDeferredUntil === null) unset.callDeferredUntil = "";
+  if (update.callOpening) set.callOpening = clip(update.callOpening, 240);
   const change: Record<string, unknown> = {};
   if (Object.keys(set).length > 0) change.$set = set;
+  if (Object.keys(unset).length > 0) change.$unset = unset;
   if (update.notifiedVia) change.$addToSet = { notifiedVia: update.notifiedVia };
   if (Object.keys(change).length === 0) return;
   const db = await getDb();
   await db.collection("cases").updateOne({ _id: new ObjectId(id) }, change);
+}
+
+/** Warning calls that were held for quiet hours and are now due. */
+export async function listDeferredCalls(now: Date): Promise<CaseRecord[]> {
+  const db = await getDb();
+  return db
+    .collection<CaseRecord>("cases")
+    .find({ callDeferredUntil: { $lte: now }, notifiedVia: { $nin: ["call"] } })
+    .sort({ callDeferredUntil: 1 })
+    .limit(20)
+    .toArray();
 }
 
 export async function listRecentCases(query: {

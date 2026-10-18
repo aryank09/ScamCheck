@@ -18,8 +18,12 @@ export async function alertFamily(
     `ScamCheck: ${name} received a likely scam (${alert.scamType}). ` +
     `They were told not to click or reply. Reply here and I'll pass your message to ${name}.`;
   for (const contact of user.familyContacts) {
-    // iMessage until this contact has texted us on SMS; SMS depends on carrier registration.
-    await sendText(contact.phone, text, contact.messagePlatform ?? "imessage");
+    // One helper failing must not retry the parent's warning. iMessage until they text us on SMS.
+    try {
+      await sendText(contact.phone, text, contact.messagePlatform ?? "imessage");
+    } catch (error) {
+      console.error("family alert failed error=" + (error as Error).name);
+    }
   }
   if (alert.caseId) await updateCase(alert.caseId, { familyAlerted: true });
 }

@@ -43,13 +43,24 @@ const CARD = /\b(?:\d[ -]?){12,18}\d\b/g;
 const EMAIL = /\b[\w.+-]+@[\w-]+(\.[\w-]+)+\b/g;
 const PHONE = /(?<![\w\]])\+?1?[ (.-]*\d{3}[ ).-]*\d{3}[ .-]*\d{4}(?!\w)/g;
 
+// "My SSN is…" / "here is my credit card". A scam that merely contains a number does not match.
+const OWN_SECRET =
+  /\b(my|here(?:'s| is) my)\b[\s\S]{0,48}\b(ssn|social security|credit card|card number|card)\b/i;
+
+function hasSensitiveNumber(text: string): boolean {
+  return new RegExp(SSN.source).test(text) || new RegExp(CARD.source).test(text);
+}
+
+/** True when the sender is handing over their own card or SSN, not when a scam quotes one. */
+export function sharesOwnSecret(text: string): boolean {
+  return hasSensitiveNumber(text) && OWN_SECRET.test(text);
+}
+
 /** Fixed path for self-harm or a parent sharing their own card/SSN. Null = check normally. */
 export function preCheck(text: string, hasLinks: boolean): GuardReply | null {
   if (SELF_HARM.test(text)) return { guard: "self_harm", reply: CRISIS };
-  // A forwarded scam with links still gets checked; the numbers are redacted before the model sees them.
-  if (!hasLinks && (new RegExp(SSN.source).test(text) || new RegExp(CARD.source).test(text))) {
-    return { guard: "sensitive_share", reply: SENSITIVE };
-  }
+  // A forwarded scam still gets checked, with or without a link. Numbers are redacted before the model.
+  if (!hasLinks && sharesOwnSecret(text)) return { guard: "sensitive_share", reply: SENSITIVE };
   return null;
 }
 

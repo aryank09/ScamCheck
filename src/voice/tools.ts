@@ -3,7 +3,7 @@
 import { timingSafeEqual } from "node:crypto";
 // ponytail: assumed signatures from teammates' modules; adjust here if theirs differ.
 import { findUserByPhone } from "../db/users.js";
-import { createCase, updateCase, listRecentCases } from "../db/cases.js";
+import { createCase, findCaseById, updateCase, listRecentCases } from "../db/cases.js";
 import { alertFamily } from "../core/familyRelay.js";
 
 interface ToolBody {
@@ -36,6 +36,14 @@ async function userFor(body: ToolBody) {
 }
 
 const realCaseId = (id?: string) => (id && id !== "none" ? id : undefined);
+
+async function ownedCase(id: string | undefined, userId: { toString(): string }) {
+  const real = realCaseId(id);
+  if (!real) return null;
+  const found = await findCaseById(real);
+  if (!found || found.userId.toString() !== userId.toString()) return null;
+  return found;
+}
 
 export const voiceTools: Record<string, (body: ToolBody) => Promise<object>> = {
   async get_user_context(body) {
@@ -72,9 +80,11 @@ export const voiceTools: Record<string, (body: ToolBody) => Promise<object>> = {
     const userAction = body.user_action && body.user_action !== "none" ? body.user_action : undefined;
     const existing = realCaseId(body.case_id);
     if (existing) {
+      const found = await ownedCase(existing, user._id);
+      if (!found) return { ok: false, note: "That case is not this caller's." };
       // Outbound call about an existing case: only record what changed.
-      await updateCase(existing, { userAction, notifiedVia: "call" });
-      return { ok: true, case_id: existing };
+      await updateCase(String(found._id), { userAction, notifiedVia: "call" });
+      return { ok: true, case_id: String(found._id) };
     }
 
     const id = await createCase({
@@ -97,7 +107,9 @@ export const voiceTools: Record<string, (body: ToolBody) => Promise<object>> = {
     const user = await userFor(body);
     if (!user) return { ok: false, note: "Unknown caller." };
     if (user.familyContacts.length === 0) return { ok: false, note: "No family contact saved." };
-    await alertFamily(user, { scamType: body.scam_type ?? "possible scam", caseId: realCaseId(body.case_id) });
+    const caseId = realCaseId(body.case_id);
+    if (caseId && !(await ownedCase(caseId, user._id))) return { ok: false, note: "That case is not this caller's." };
+    await alertFamily(user, { scamType: body.scam_type ?? "possible scam", caseId });
     return { ok: true };
   },
 };

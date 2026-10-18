@@ -1,12 +1,13 @@
 import { sendText, sendVoiceNote } from "../channels/photon.js";
-import { createCase, updateCase } from "../db/cases.js";
-import type { User } from "../db/users.js";
+import { createCase, listDeferredCalls, updateCase } from "../db/cases.js";
+import { findUserById, type User } from "../db/users.js";
 import { startWarningCall } from "../voice/outbound.js";
 import type { AnalysisResult } from "./types.js";
 import { alertFamily } from "./familyRelay.js";
 import { tts } from "./tts.js";
 import { scrubBannedWords } from "./bannedWords.js";
 import { redactOutput } from "./guardrails.js";
+import { isQuietHours, quietHoursResumeAt } from "./quietHours.js";
 
 const FOOTER = "Automated check — it can be wrong. Verify with the company directly.";
 
@@ -60,17 +61,62 @@ export async function notifyEmail(user: User, result: AnalysisResult): Promise<v
   if (user.messagePlatform === "imessage") await deliverVoice(user.phone, result.spoken_summary);
 
   if (level === "text") return;
+  await deliverWarningCall(user, id, result);
+  if (user.familyContacts.length > 0) await alertFamily(user, { scamType: result.scam_type, caseId: id });
+}
+
+/**
+ * Place the warning call, or hold it until quiet hours end.
+ * Paid/clicked passes force=true: that call goes out immediately.
+ */
+export async function deliverWarningCall(
+  user: User,
+  caseId: string,
+  result: Pick<AnalysisResult, "claimed_brand" | "scam_type" | "spoken_summary">,
+  force = false,
+): Promise<void> {
+  const opening = redactOutput(scrubBannedWords(result.spoken_summary));
+  if (!force && isQuietHours(user.quietHours)) {
+    await updateCase(caseId, { callDeferredUntil: quietHoursResumeAt(user.quietHours), callOpening: opening });
+    return;
+  }
   const conversationId = await startWarningCall({
     toPhone: user.phone,
-    caseId: id,
+    caseId,
     language: user.language,
     userName: user.displayName,
     brand: result.claimed_brand ?? undefined,
     scamType: result.scam_type,
-    opening: scrubBannedWords(result.spoken_summary),
+    opening,
   });
-  if (conversationId) await updateCase(id, { notifiedVia: "call" });
-  if (user.familyContacts.length > 0) await alertFamily(user, { scamType: result.scam_type, caseId: id });
+  if (conversationId) await updateCase(caseId, { notifiedVia: "call", callDeferredUntil: null });
+}
+
+/** Morning pass for calls that waited out quiet hours. */
+export async function placeDeferredCalls(now = new Date()): Promise<void> {
+  const due = await listDeferredCalls(now);
+  for (const item of due) {
+    const user = await findUserById(item.userId);
+    if (!user) {
+      await updateCase(String(item._id), { callDeferredUntil: null });
+      continue;
+    }
+    if (isQuietHours(user.quietHours, now)) continue;
+    const conversationId = await startWarningCall({
+      toPhone: user.phone,
+      caseId: String(item._id),
+      language: user.language,
+      userName: user.displayName,
+      brand: item.claimedBrand,
+      scamType: item.scamType,
+      opening: item.callOpening,
+    });
+    if (conversationId) {
+      await updateCase(String(item._id), { notifiedVia: "call", callDeferredUntil: null });
+    } else {
+      await updateCase(String(item._id), { callDeferredUntil: new Date(now.getTime() + 15 * 60 * 1000) });
+    }
+  }
 }
 
 export async function deliverVoice(phone: string, spoken: string): Promise<void> {
