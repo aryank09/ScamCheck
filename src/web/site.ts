@@ -39,7 +39,7 @@ const LANGUAGE_LABELS: Record<string, string> = {
 
 const NOTICES: Record<string, string> = {
   added: "Added. SMS status is on their card. Reload this page to check delivery.",
-  watching: "Added. We texted them. SMS status is on their card. Summaries show here once they reply ALLOW.",
+  watching: "Added. Their summaries are on this page. We texted them a heads-up; SMS status is on their card.",
   removed: "Removed from your account.",
 };
 
@@ -163,21 +163,22 @@ async function addParent(account: Account, fields: Record<string, string>): Prom
   const result = await addParentLink(account._id, { ...parsed.value, userId: user?._id });
   if (result === "duplicate") return { status: 303, redirect: "/app?error=duplicate" };
   const watching = parentIsWatching(user?.consentAcceptedAt);
-  // SMS goes out so the account can see whether the number actually received a text.
-  // Summaries stay hidden until the parent replies ALLOW.
-  await saveParentInvite(account._id, parsed.value.phone, await requestAllow(account.name, parsed.value.phone));
+  // No confirmation step (team decision 10-17-26): adding a parent shows their summaries right away.
+  // ponytail: anyone who knows a consenting parent's number can see their summaries; restore a
+  // parent-side approval before real launch. The heads-up text keeps the parent informed.
+  await saveParentInvite(account._id, parsed.value.phone, await notifyParent(account.name, parsed.value.phone));
   return { status: 303, redirect: "/app?notice=" + (watching ? "watching" : "added") };
 }
 
-async function requestAllow(
+async function notifyParent(
   name: string,
   phone: string,
 ): Promise<{ messageId?: string; status: string; failure?: string }> {
   try {
     const sent = await sendText(
       phone,
-      `${name} asked to see your ScamCheck warning summaries on the ScamCheck website. ` +
-        "Reply ALLOW to share them. If you don't know them, ignore this.",
+      `${name} added you on the ScamCheck website and can see your scam warning summaries there ` +
+        "(never your messages).",
       "sms",
     );
     return {
@@ -186,7 +187,7 @@ async function requestAllow(
       ...(sent.failure ? { failure: sent.failure } : {}),
     };
   } catch (error) {
-    console.error("allow request failed error=" + (error as Error).name);
+    console.error("parent heads-up failed error=" + (error as Error).name);
     const message = error instanceof Error ? error.message : "";
     const failure = /is not set|No sms agent/.test(message) ? "not_configured" : "send_failed";
     return { status: "failed", failure };
@@ -209,7 +210,7 @@ interface ParentCard {
 async function parentCard(link: ParentLink): Promise<ParentCard> {
   const current = await refreshInvite(link);
   const user = await findUserByPhone(current.phone);
-  if (!user || !parentIsWatching(user.consentAcceptedAt) || !current.approvedAt) return { link: current, watching: false };
+  if (!user || !parentIsWatching(user.consentAcceptedAt)) return { link: current, watching: false };
   return { link: current, watching: true, snapshot: familyView(user, await listCasesForUser(user._id, 7)) };
 }
 
@@ -241,7 +242,7 @@ function dashboardPage(account: Account, cards: ParentCard[], notice: string, er
         </div>
         <form method="post" action="/logout"><button class="ghost" type="submit">Log out</button></form>
       </div>
-      <p class="lede">Add a parent by name and mobile number. We send one SMS so you can see if it was delivered. Reload this page to check again. Summaries appear after they reply ALLOW.</p>
+      <p class="lede">Add a parent by name and mobile number. We text them a heads-up so you can see if it was delivered. Their summaries show once they're using ScamCheck.</p>
       ${banner(notice, error)}
       <section class="panel">
         <h2>Add a parent</h2>
@@ -280,7 +281,7 @@ function renderCard(card: ParentCard): string {
   const check = inviteStillOpen(card.link.inviteStatus) ? `<p class="fine"><a href="/app">Check SMS status</a></p>` : "";
   const body = card.watching && card.snapshot
     ? metricsBlock(card.snapshot)
-    : `<p class="lede">Summaries show here after they agree with ScamCheck and reply ALLOW.</p>`;
+    : `<p class="lede">Summaries show here once they start using ScamCheck.</p>`;
   return `<article class="card parent">
     <header>
       <div><h3>${escapeHtml(who)}</h3><p class="meta">···${escapeHtml(last4)} · ${escapeHtml(language)}</p></div>

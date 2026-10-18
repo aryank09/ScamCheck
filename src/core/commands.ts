@@ -1,4 +1,3 @@
-import { approveLatestParentLink } from "../db/accounts.js";
 import { listRecentCases, updateCase } from "../db/cases.js";
 import { deleteUser, ensureFamilyToken, joinFamilyGroups, saveUser, type User } from "../db/users.js";
 import { decryptToken } from "../email/tokens.js";
@@ -32,22 +31,13 @@ const URGENT =
   "Call your bank right away using the number on your card. Do not use a number from the message. I will let your family contact know.";
 
 export async function handleCommand(user: User, text: string): Promise<string | null> {
-  const match = text.trim().match(/^(language|family|help|stop|paid|clicked|dashboard|remove|allow)\b[:\s]*(.*)$/i);
+  const match = text.trim().match(/^(language|family|help|stop|paid|clicked|dashboard|remove)\b[:\s]*(.*)$/i);
   if (!match?.[1]) return null;
   const command = match[1].toLowerCase();
   const rest = (match[2] ?? "").trim();
 
   if (command === "help") {
     return "Forward a message and I will check it. Commands: LANGUAGE, FAMILY, REMOVE, HELP, STOP, PAID, CLICKED, DASHBOARD. Or just call me.";
-  }
-  if (command === "allow") {
-    const result = await approveLatestParentLink(user.phone);
-    if (!result.approved) return "There's no request to approve right now.";
-    const more =
-      result.remaining > 0
-        ? " Someone else also asked. Reply ALLOW again if you want them to see summaries too."
-        : "";
-    return `Done. Your family on the ScamCheck website can now see your warning summaries, not your messages.${more}`;
   }
   if (command === "dashboard") {
     return dashboardReply(user);

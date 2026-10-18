@@ -1,7 +1,6 @@
 import type { User } from "../db/users.js";
 import { joinFamilyGroups, saveUser } from "../db/users.js";
 import { normalizePhone } from "../db/users.js";
-import { listParentLinksByPhone } from "../db/accounts.js";
 
 const CONSENT: Record<string, string> = {
   en: "ScamCheck is an automated tool that uses AI. It can miss scams and can flag real messages by mistake. It is not a guarantee and is not affiliated with any bank, company, or government agency. Always confirm by contacting the company directly, using the number on your card or their website. Never share codes or passwords. By replying YES, you agree to let ScamCheck read your email to check for scams. We don't store your emails or messages. Reply STOP anytime to delete your data.",
@@ -90,11 +89,7 @@ export async function advanceOnboarding(user: User, text: string): Promise<strin
     if (!/^(yes|si|sí)$/i.test(trimmed)) return "Reply YES to continue, or STOP to delete your data.";
     await saveUser(user._id, { consentAcceptedAt: new Date(), onboardingStep: "family" });
     user.onboardingStep = "family";
-    const asked = (await listParentLinksByPhone(user.phone)).some((link) => !link.approvedAt);
-    const allow = asked
-      ? "Someone in your family added you on the ScamCheck website. Reply ALLOW anytime to let them see your warning summaries.\n\n"
-      : "";
-    return `${allow}Send their name and number, or reply SKIP.`;
+    return "Send their name and number, or reply SKIP.";
   }
 
   if (/^skip$/i.test(trimmed)) {

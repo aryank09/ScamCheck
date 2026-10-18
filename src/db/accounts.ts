@@ -21,9 +21,7 @@ export interface ParentLink {
   language: string;
   relation?: string;
   userId?: ObjectId;
-  /** Set when the parent replies ALLOW. Until then the account sees no summaries. */
-  approvedAt?: Date;
-  /** Photon id of the ALLOW text, so the account page can show carrier status. */
+  /** Photon id of the heads-up text, so the account page can show carrier status. */
   inviteMessageId?: string;
   inviteStatus?: string;
   inviteFailure?: string;
@@ -242,27 +240,9 @@ function toLink(doc: Record<string, unknown> & { _id: ObjectId }): ParentLink {
   };
   if (typeof doc.relation === "string" && doc.relation) link.relation = doc.relation;
   if (doc.userId instanceof ObjectId) link.userId = doc.userId;
-  if (doc.approvedAt instanceof Date) link.approvedAt = doc.approvedAt;
   if (typeof doc.inviteMessageId === "string") link.inviteMessageId = doc.inviteMessageId;
   if (typeof doc.inviteStatus === "string") link.inviteStatus = doc.inviteStatus;
   if (typeof doc.inviteFailure === "string") link.inviteFailure = doc.inviteFailure;
   return link;
 }
 
-/**
- * The parent replied ALLOW. Approve only the newest request they have not
- * answered, so one reply cannot unlock a second account they have not seen.
- */
-export async function approveLatestParentLink(phone: string): Promise<{ approved: boolean; remaining: number }> {
-  await readyAccountStore();
-  const db = await getDb();
-  const pending = await db
-    .collection("parentLinks")
-    .find({ phone, approvedAt: { $exists: false } })
-    .sort({ createdAt: -1 })
-    .toArray();
-  const latest = pending[0];
-  if (!latest) return { approved: false, remaining: 0 };
-  await db.collection("parentLinks").updateOne({ _id: latest._id }, { $set: { approvedAt: new Date() } });
-  return { approved: true, remaining: pending.length - 1 };
-}
