@@ -105,6 +105,22 @@ export async function listRecentCases(query: {
     .toArray();
 }
 
+/** Newest flagged case from the last 3 days that no family member has answered yet. */
+export async function findLatestOpenCase(userIds: ObjectId[]): Promise<CaseRecord | null> {
+  if (userIds.length === 0) return null;
+  const since = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+  const db = await getDb();
+  return db.collection<CaseRecord>("cases").findOne(
+    {
+      userId: { $in: userIds },
+      verdict: { $ne: "no_red_flags" },
+      familyResponse: { $exists: false },
+      createdAt: { $gte: since },
+    },
+    { sort: { createdAt: -1 } },
+  );
+}
+
 /** Drop links and long numbers so a stored sentence cannot hold message content. */
 function storedSummary(summary: string): string {
   const cleaned = summary
