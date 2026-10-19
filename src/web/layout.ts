@@ -247,6 +247,12 @@ input, select, textarea, button { font: inherit; }
 .cta-band .btn-primary { background: #fff; color: var(--brand-ink); margin-top: 26px; }
 .cta-band .btn-primary:hover { background: #eef2ff; }
 .site-foot { max-width: 1180px; margin: 0 auto; padding: 28px 24px 48px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); }
+.legal { max-width: 760px; margin: 0 auto; padding: 24px 24px 64px; color: var(--ink-2); line-height: 1.65; }
+.legal h1 { font-size: 36px; margin: 0 0 6px; color: var(--ink); }
+.legal h2 { font-size: 20px; margin: 34px 0 10px; color: var(--ink); }
+.legal ul { padding-left: 22px; }
+.legal li { margin: 6px 0; }
+.legal a { color: var(--brand); }
 
 /* Sign in and sign up */
 .auth { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
