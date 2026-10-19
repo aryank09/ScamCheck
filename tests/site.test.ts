@@ -223,6 +223,18 @@ describe("dashboard pages", () => {
     assert.doesNotMatch(landingPage(false), BANNED);
     assert.match(landingPage(true), /Open dashboard/);
   });
+
+  it("serves the privacy policy and terms publicly, linked from the landing page", async () => {
+    for (const path of ["/privacy", "/terms"]) {
+      assert.ok(isSitePath(path));
+      const result = await handleSite("GET", new URL(`http://x${path}`), undefined, undefined);
+      assert.equal(result.status, 200);
+      assert.match(landingPage(false), new RegExp(`href="${path}"`));
+    }
+    const privacy = (await handleSite("GET", new URL("http://x/privacy"), undefined, undefined)).html ?? "";
+    assert.match(privacy, /Limited Use requirements/);
+    assert.match(privacy, /mailto:/);
+  });
 });
 
 describe("motion and live refresh", () => {

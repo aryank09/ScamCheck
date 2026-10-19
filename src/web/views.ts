@@ -332,7 +332,7 @@ export function landingPage(signedIn: boolean): string {
   </section>
   <footer class="site-foot">
     <span>${FOOTER} Not affiliated with any bank, company, or government agency.</span>
-    <span><a href="/radar">Community Scam Radar</a> · ScamCheck</span>
+    <span><a href="/radar">Community Scam Radar</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · ScamCheck</span>
   </footer>
 </div>`;
   return page("ScamCheck · Scam protection for families", body, SITE_SCRIPT);
@@ -391,6 +391,7 @@ export function authPage(mode: "signup" | "login", error: string, fields: Record
         <div class="field"><label class="label" for="password">Password</label><input class="input" id="password" name="password" type="password" autocomplete="${signup ? "new-password" : "current-password"}" minlength="8" required>${signup ? `<span class="hint">At least 8 characters.</span>` : ""}</div>
         <button class="btn btn-primary btn-lg btn-block" type="submit">${signup ? "Create account" : "Log in"}</button>
       </form>
+      ${signup ? `<p class="hint" style="margin-top:14px">By creating an account, you agree to the <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>` : ""}
       <p class="auth-switch">${signup ? `Already have an account? <a href="/login">Log in</a>` : `New to ScamCheck? <a href="/signup">Create an account</a>`}</p>
     </div>
   </div>

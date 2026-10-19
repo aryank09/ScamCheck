@@ -7,6 +7,7 @@ import type { CaseRecord, CaseSource, CaseVerdict, NotifyChannel, UserAction } f
 import type { User } from "../src/db/users.js";
 import { buildRadar } from "../src/core/radar.js";
 import { radarPageHtml } from "../src/web/radar.js";
+import { privacyPage, termsPage } from "../src/web/legal.js";
 import { caseStats, parentView, parseRange, type ParentView, type RangeDays } from "../src/web/stats.js";
 import { addParentPage, authPage, landingPage, overviewPage, parentPage, type RecentWarning } from "../src/web/views.js";
 
@@ -226,6 +227,8 @@ function render(url: URL): string | null {
   if (url.pathname === "/") return landingPage(false);
   if (url.pathname === "/login") return authPage("login", url.searchParams.has("error") ? "That email and password did not match." : "", {});
   if (url.pathname === "/signup") return authPage("signup", "", {});
+  if (url.pathname === "/privacy") return privacyPage();
+  if (url.pathname === "/terms") return termsPage();
   if (url.pathname === "/radar") {
     const radarCases = samples.flatMap((sample) =>
       sample.cases

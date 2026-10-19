@@ -26,6 +26,7 @@ import {
   sessionCookie,
 } from "./accountForms.js";
 import { brandMark, escapeHtml, page } from "./layout.js";
+import { privacyPage, termsPage } from "./legal.js";
 import { caseStats, parentView, parseRange, type ParentView, type RangeDays } from "./stats.js";
 import {
   addParentPage,
@@ -58,7 +59,7 @@ export interface SiteResult {
 }
 
 export function isSitePath(pathname: string): boolean {
-  return ["/", "/signup", "/login", "/logout", "/app"].includes(pathname) || pathname.startsWith("/app/");
+  return ["/", "/signup", "/login", "/logout", "/app", "/privacy", "/terms"].includes(pathname) || pathname.startsWith("/app/");
 }
 
 export function siteErrorHtml(message: string): string {
@@ -80,6 +81,8 @@ export async function handleSite(
 ): Promise<SiteResult> {
   const token = readCookie(cookieHeader, COOKIE);
   if (method === "GET" && url.pathname === "/") return { status: 200, html: landingPage(Boolean(await viewer(token))) };
+  if (method === "GET" && url.pathname === "/privacy") return { status: 200, html: privacyPage() };
+  if (method === "GET" && url.pathname === "/terms") return { status: 200, html: termsPage() };
   if (method === "GET" && url.pathname === "/signup") return authGet("signup", token);
   if (method === "GET" && url.pathname === "/login") return authGet("login", token);
   if (method === "POST" && url.pathname === "/signup") return signup(readForm(body));
